@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wealth Tracker — World's Richest People</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>Wealth Tracker</h1>
+    <p class="sub">Real-time billionaires index · returns &amp; analysis</p>
+  </div>
+  <div class="asof" id="asof">Loading…</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-view="rankings">Rankings</button>
+  <button class="tab" data-view="analysis">Analysis</button>
+</nav>
+
+<div class="filterbar" id="filterbar">
+  <input type="search" id="search" placeholder="Search name, country, industry…" autocomplete="off">
+  <select id="countryFilter"><option value="">All countries</option></select>
+  <select id="industryFilter"><option value="">All industries</option></select>
+  <div class="scope-toggle" role="group" aria-label="Scope">
+    <button id="scopeAll" class="active">All billionaires</button>
+    <button id="scope500">Top 500</button>
+  </div>
+</div>
+
+<main>
+  <section id="view-rankings" class="view active">
+    <div class="table-wrap">
+      <table id="rankTable">
+        <thead>
+          <tr>
+            <th data-sort="rank" class="num sorted-asc">#</th>
+            <th data-sort="name">Name</th>
+            <th data-sort="country">Country</th>
+            <th data-sort="industry">Industry</th>
+            <th data-sort="worth" class="num">Net worth</th>
+            <th data-sort="dailyChange" class="num">Day Δ</th>
+            <th data-sort="dailyPct" class="num">Day %</th>
+            <th data-sort="ytdChange" class="num">YTD Δ</th>
+            <th data-sort="ytdPct" class="num">YTD %</th>
+            <th>Today</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="sentinel"></div>
+      <div id="rowCount" class="rowcount"></div>
+    </div>
+  </section>
+
+  <section id="view-analysis" class="view">
+    <div class="tiles" id="tiles"></div>
+
+    <div class="grid">
+      <div class="card"><h2>Top 10 daily gainers</h2><div class="chartbox"><canvas id="chGainers"></canvas></div></div>
+      <div class="card"><h2>Top 10 daily losers</h2><div class="chartbox"><canvas id="chLosers"></canvas></div></div>
+      <div class="card"><h2>Wealth by country <span class="units">$B, top 12</span></h2><div class="chartbox tall"><canvas id="chCountry"></canvas></div></div>
+      <div class="card"><h2>Wealth by industry <span class="units">$B</span></h2><div class="chartbox tall"><canvas id="chIndustry"></canvas></div></div>
+      <div class="card"><h2>Net-worth distribution <span class="units">people per bracket</span></h2><div class="chartbox"><canvas id="chDist"></canvas></div></div>
+      <div class="card"><h2>Wealth concentration <span class="units">cumulative share of total</span></h2><div class="chartbox"><canvas id="chConc"></canvas></div></div>
+      <div class="card"><h2>Age distribution <span class="units">people per decade</span></h2><div class="chartbox"><canvas id="chAge"></canvas></div></div>
+      <div class="card">
+        <h2>Composition</h2>
+        <div id="compBars"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="error" class="error" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
