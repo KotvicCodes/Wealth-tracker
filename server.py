@@ -9,6 +9,7 @@ Run:  python3 server.py   ->  http://localhost:8000
 import gzip
 import json
 import os
+import re
 import ssl
 import threading
 import time
@@ -23,6 +24,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 
 FORBES_URL = "https://www.forbes.com/forbesapi/person/rtb/0/position/true.json"
+ANNUAL_URL = (
+    "https://www.forbes.com/forbesapi/person/billionaires/{year}/position/true.json"
+    "?fields=personName,finalWorth"
+)
+ANNUAL_YEARS = [2021, 2022, 2023, 2024, 2025]  # the current year comes from archivedWorth
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -86,6 +92,47 @@ def _http_get(url, ctx, timeout=90):
         return raw
 
 
+def _norm_name(name):
+    """Annual lists have per-year IDs, so people are joined across years by name."""
+    name = (name or "").lower()
+    name = re.sub(r"\s*&\s*family", "", name)
+    return re.sub(r"[^a-z ]", "", name).strip()
+
+
+_annual_lock = threading.Lock()
+_annual_maps = None  # {year: {normalized name: worth $M}}
+
+
+def _load_annual_lists():
+    """Past annual Forbes lists (static data): fetch once, cache on disk forever."""
+    global _annual_maps
+    with _annual_lock:
+        if _annual_maps is not None:
+            return _annual_maps
+        os.makedirs(DATA_DIR, exist_ok=True)
+        maps = {}
+        for year in ANNUAL_YEARS:
+            cache_file = os.path.join(DATA_DIR, f"annual_{year}.json")
+            try:
+                with open(cache_file) as f:
+                    people = json.load(f)
+            except (OSError, ValueError):
+                print(f"fetching Forbes {year} annual list…")
+                raw = _http_get(ANNUAL_URL.format(year=year), _ssl_ctx)
+                people = [
+                    {"name": p.get("personName"), "worth": p.get("finalWorth")}
+                    for p in json.loads(raw)["personList"]["personsLists"]
+                    if p.get("finalWorth")
+                ]
+                tmp = cache_file + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(people, f)
+                os.replace(tmp, cache_file)
+            maps[year] = {_norm_name(p["name"]): p["worth"] for p in people}
+        _annual_maps = maps
+        return maps
+
+
 def _fetch_billionaires():
     global _ssl_ctx
     raw = None
@@ -94,7 +141,7 @@ def _fetch_billionaires():
             raw = _http_get(FORBES_URL, _ssl_ctx)
             break
         except urllib.error.HTTPError as e:
-            if e.code >= 500 and attempt < 3:  # transient CDN hiccup — retry
+            if e.code >= 500 and attempt < 3:  # transient CDN hiccup – retry
                 time.sleep(2)
                 continue
             raise
@@ -114,7 +161,22 @@ def _fetch_billionaires():
         (_trim_person(p) for p in people if p.get("finalWorth")),
         key=lambda x: x["rank"] if x["rank"] is not None else 10**9,
     )
-    return {"asOf": int(time.time() * 1000), "count": len(trimmed), "people": trimmed}
+    try:
+        annual = _load_annual_lists()
+    except Exception as e:
+        print(f"warning: annual lists unavailable: {e}")
+        annual = {}
+    for p in trimmed:
+        key = _norm_name(p["name"])
+        p["annual"] = {
+            str(year): worths[key] for year, worths in annual.items() if key in worths
+        }
+    return {
+        "asOf": int(time.time() * 1000),
+        "count": len(trimmed),
+        "annualYears": ANNUAL_YEARS,
+        "people": trimmed,
+    }
 
 
 def _save_snapshot(data):
