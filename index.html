@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wealth Tracker — World's Richest People</title>
+<title>Wealth Tracker – World's Richest People</title>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
@@ -18,6 +18,7 @@
 
 <nav class="tabs">
   <button class="tab active" data-view="rankings">Rankings</button>
+  <button class="tab" data-view="performance">Performance</button>
   <button class="tab" data-view="analysis">Analysis</button>
 </nav>
 
@@ -46,6 +47,8 @@
             <th data-sort="dailyPct" class="num">Day %</th>
             <th data-sort="ytdChange" class="num">YTD Δ</th>
             <th data-sort="ytdPct" class="num">YTD %</th>
+            <th data-sort="chg1y" class="num">1Y Δ</th>
+            <th data-sort="pct1y" class="num">1Y %</th>
             <th>Today</th>
           </tr>
         </thead>
@@ -53,6 +56,31 @@
       </table>
       <div id="sentinel"></div>
       <div id="rowCount" class="rowcount"></div>
+    </div>
+  </section>
+
+  <section id="view-performance" class="view">
+    <div class="periodbar" id="periodbar">
+      <span class="periodbar-label">Change over</span>
+      <button data-period="day" class="chip active">Day</button>
+      <button data-period="d30" class="chip">30D</button>
+      <button data-period="d90" class="chip">90D</button>
+      <button data-period="ytd" class="chip">YTD</button>
+      <button data-period="y1" class="chip">1Y</button>
+      <button data-period="y3" class="chip">3Y</button>
+      <button data-period="y5" class="chip">5Y</button>
+      <span class="period-note" id="periodNote"></span>
+    </div>
+
+    <div class="tiles" id="perfTiles"></div>
+
+    <div class="grid">
+      <div class="card"><h2 id="hGain$">Top gainers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfGainAbs"></canvas></div></div>
+      <div class="card"><h2 id="hLoss$">Top losers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfLossAbs"></canvas></div></div>
+      <div class="card"><h2>Top gainers <span class="units">%</span></h2><div class="chartbox"><canvas id="chPerfGainPct"></canvas></div></div>
+      <div class="card"><h2>Top losers <span class="units">%</span></h2><div class="chartbox"><canvas id="chPerfLossPct"></canvas></div></div>
+      <div class="card"><h2>Return distribution <span class="units">people per % bucket</span></h2><div class="chartbox"><canvas id="chPerfDist"></canvas></div></div>
+      <div class="card"><h2>Wealth trajectories <span class="units">top 8 today, $B, annual list values</span></h2><div class="chartbox"><canvas id="chTraject"></canvas></div></div>
     </div>
   </section>
 
@@ -74,6 +102,16 @@
     </div>
   </section>
 </main>
+
+<div id="personModal" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+    <div class="modal-head" id="modalHead"></div>
+    <div class="modal-stats" id="modalStats"></div>
+    <div class="chartbox modal-chart"><canvas id="chPerson"></canvas></div>
+    <p class="modal-note">Net worth by Forbes annual list (April each year), latest list figure, and the live value now.</p>
+  </div>
+</div>
 
 <div id="error" class="error" hidden></div>
 <script src="app.js"></script>

@@ -1,4 +1,4 @@
-/* Wealth Tracker frontend — plain JS, no framework. */
+/* Wealth Tracker frontend – plain JS, no framework. */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -11,7 +11,10 @@ const state = {
   sortDir: 1,        // 1 asc, -1 desc
   rendered: 0,       // rows currently in the DOM
   charts: {},
-  dashboardDirty: true,  // charts can't size in a hidden tab — render on show
+  dashboardDirty: true,  // charts can't size in a hidden tab – render on show
+  perfDirty: true,
+  period: "day",
+  history: {},           // local daily snapshots {date: {asOf, people: [[name, worth]]}}
 };
 
 const CHUNK = 80;
@@ -19,36 +22,94 @@ const CHUNK = 80;
 /* ---------- formatting ---------- */
 const fmtMoney = (m) => {
   // m is $ millions
-  if (m == null || isNaN(m)) return "—";
+  if (m == null || isNaN(m)) return "–";
   const abs = Math.abs(m);
   const sign = m < 0 ? "-" : "";
   if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}T`;
   if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 100000 ? 0 : 1)}B`;
   return `${sign}$${abs.toFixed(0)}M`;
 };
-const fmtDelta = (m) => (m == null || isNaN(m) ? "—" : (m >= 0 ? "+" : "") + fmtMoney(m).replace("$-", "-$"));
-const fmtPct = (p) => (p == null || isNaN(p) ? "—" : `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`);
+const fmtDelta = (m) => (m == null || isNaN(m) ? "–" : (m >= 0 ? "+" : "") + fmtMoney(m).replace("$-", "-$"));
+const fmtPct = (p) => (p == null || isNaN(p) ? "–" : `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`);
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 
 /* ---------- data ---------- */
 async function loadData() {
-  const resp = await fetch("/api/billionaires");
+  const [resp, histResp] = await Promise.all([
+    fetch("/api/billionaires"),
+    fetch("/api/history").catch(() => null),
+  ]);
   if (!resp.ok) {
     let msg = `Server error (${resp.status})`;
     try { msg = (await resp.json()).error || msg; } catch (_) {}
     throw new Error(msg);
   }
   const data = await resp.json();
+  if (histResp && histResp.ok) {
+    try { state.history = await histResp.json(); } catch (_) { state.history = {}; }
+  }
   const now = Date.now();
   state.people = data.people.map((p) => {
     const dailyChange = p.prevWorth != null ? p.worth - p.prevWorth : null;
     const dailyPct = p.prevWorth ? (dailyChange / p.prevWorth) * 100 : null;
     const ytdChange = p.archivedWorth != null && p.archivedWorth > 0 ? p.worth - p.archivedWorth : null;
     const ytdPct = p.archivedWorth > 0 ? (ytdChange / p.archivedWorth) * 100 : null;
+    const w1y = (p.annual || {})["2025"];
+    const chg1y = w1y > 0 ? p.worth - w1y : null;
+    const pct1y = w1y > 0 ? (chg1y / w1y) * 100 : null;
     const age = p.birthDate ? Math.floor((now - p.birthDate) / (365.25 * 24 * 3600e3)) : null;
-    return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, age };
+    return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, chg1y, pct1y, age };
   });
   $("asof").textContent = `As of ${new Date(data.asOf).toLocaleString()} · ${data.count.toLocaleString()} billionaires · source: Forbes real-time list`;
+}
+
+/* ---------- period returns ----------
+   Baselines per period: day and YTD come from the live feed, 1Y/3Y/5Y from
+   past annual Forbes lists, 30D/90D from this app's own daily snapshots
+   (data/history.json), which build up as the server runs. */
+const PERIODS = {
+  day: { label: "today" },
+  d30: { label: "past 30 days", days: 30 },
+  d90: { label: "past 90 days", days: 90 },
+  ytd: { label: "since the latest annual list" },
+  y1: { label: "since the 2025 list", year: "2025" },
+  y3: { label: "since the 2023 list", year: "2023" },
+  y5: { label: "since the 2021 list", year: "2021" },
+};
+
+const normName = (n) => (n || "").toLowerCase().replace(/\s*&\s*family/, "").replace(/[^a-z ]/g, "").trim();
+
+// Find a local snapshot closest to `days` ago (within a third of the span).
+function snapshotBaseline(days) {
+  const target = Date.now() - days * 86400e3;
+  const tolerance = days * 86400e3 / 3;
+  let best = null, bestDist = Infinity;
+  for (const [d, snap] of Object.entries(state.history)) {
+    const t = snap.asOf || new Date(d).getTime();
+    const dist = Math.abs(t - target);
+    if (dist < bestDist) { bestDist = dist; best = snap; }
+  }
+  if (!best || bestDist > tolerance) return null;
+  return new Map(best.people.map(([n, w]) => [normName(n), w]));
+}
+
+const snapshotCache = {};
+
+function baselineWorth(p, period) {
+  const def = PERIODS[period];
+  if (period === "day") return p.prevWorth;
+  if (period === "ytd") return p.archivedWorth > 0 ? p.archivedWorth : null;
+  if (def.year) { const w = (p.annual || {})[def.year]; return w > 0 ? w : null; }
+  if (!(period in snapshotCache)) snapshotCache[period] = snapshotBaseline(def.days);
+  const map = snapshotCache[period];
+  return map ? map.get(normName(p.name)) ?? null : null;
+}
+
+function periodChange(p, period) {
+  const base = baselineWorth(p, period);
+  if (base == null || !(base > 0)) return { chg: null, pct: null };
+  const chg = p.worth - base;
+  return { chg, pct: (chg / base) * 100 };
 }
 
 /* ---------- filtering & sorting ---------- */
@@ -103,7 +164,7 @@ function buildRow(p) {
   const tr = document.createElement("tr");
 
   const tdRank = document.createElement("td");
-  tdRank.className = "num"; tdRank.textContent = p.rank ?? "—";
+  tdRank.className = "num"; tdRank.textContent = p.rank ?? "–";
 
   const tdName = document.createElement("td");
   tdName.className = "name";
@@ -118,25 +179,28 @@ function buildRow(p) {
     wrap.appendChild(avatarFallback(p.name));
   }
   const nameBox = document.createElement("div");
-  const nm = document.createElement("div"); nm.textContent = p.name || "—";
+  const nm = document.createElement("div"); nm.textContent = p.name || "–";
   const src = document.createElement("div"); src.className = "src"; src.textContent = p.source || "";
   nameBox.append(nm, src);
   wrap.appendChild(nameBox);
   tdName.appendChild(wrap);
 
-  const tdCountry = document.createElement("td"); tdCountry.textContent = p.country || "—";
-  const tdInd = document.createElement("td"); tdInd.textContent = p.industry || "—";
+  const tdCountry = document.createElement("td"); tdCountry.textContent = p.country || "–";
+  const tdInd = document.createElement("td"); tdInd.textContent = p.industry || "–";
 
   const tdWorth = document.createElement("td"); tdWorth.className = "num name"; tdWorth.textContent = fmtMoney(p.worth);
   const tdDay = document.createElement("td"); tdDay.className = `num ${cls(p.dailyChange)}`; tdDay.textContent = fmtDelta(p.dailyChange);
   const tdDayP = document.createElement("td"); tdDayP.className = `num ${cls(p.dailyPct)}`; tdDayP.textContent = fmtPct(p.dailyPct);
   const tdYtd = document.createElement("td"); tdYtd.className = `num ${cls(p.ytdChange)}`; tdYtd.textContent = fmtDelta(p.ytdChange);
   const tdYtdP = document.createElement("td"); tdYtdP.className = `num ${cls(p.ytdPct)}`; tdYtdP.textContent = fmtPct(p.ytdPct);
+  const td1y = document.createElement("td"); td1y.className = `num ${cls(p.chg1y)}`; td1y.textContent = fmtDelta(p.chg1y);
+  const td1yP = document.createElement("td"); td1yP.className = `num ${cls(p.pct1y)}`; td1yP.textContent = fmtPct(p.pct1y);
 
   const tdSpark = document.createElement("td");
   if (p.spark && p.spark.length > 1) tdSpark.appendChild(sparkline(p.spark));
 
-  tr.append(tdRank, tdName, tdCountry, tdInd, tdWorth, tdDay, tdDayP, tdYtd, tdYtdP, tdSpark);
+  tr.append(tdRank, tdName, tdCountry, tdInd, tdWorth, tdDay, tdDayP, tdYtd, tdYtdP, td1y, td1yP, tdSpark);
+  tr.addEventListener("click", () => openPersonModal(p));
   return tr;
 }
 
@@ -343,7 +407,7 @@ function renderDashboard() {
     options: barOpts(false, " people"),
   });
 
-  // composition stacked bars (self-made, gender) — pure CSS
+  // composition stacked bars (self-made, gender) – pure CSS
   const compBar = (label, segments) => {
     segments = segments.filter((s) => s.n > 0);
     const totalSeg = segments.reduce((s, x) => s + x.n, 0) || 1;
@@ -367,6 +431,203 @@ function renderDashboard() {
       { name: "Women", n: women, color: C.violet },
       { name: "Unknown", n: rows.length - men - women, color: "#52514e" },
     ]);
+}
+
+/* ---------- performance view ---------- */
+function renderPerformance() {
+  const period = state.period;
+  const def = PERIODS[period];
+  const rows = scoped()
+    .map((p) => ({ p, ...periodChange(p, period) }))
+    .filter((r) => r.chg != null);
+
+  const note = $("periodNote");
+  if (!rows.length && def.days) {
+    note.textContent = `No local snapshot from ~${def.days} days ago yet. The server saves one per day it runs, so this fills in over time.`;
+  } else {
+    note.textContent = `${rows.length.toLocaleString()} people with data ${def.label}`;
+  }
+
+  const agg = rows.reduce((s, r) => s + r.chg, 0);
+  const winners = rows.filter((r) => r.chg > 0).length;
+  const losers = rows.filter((r) => r.chg < 0).length;
+  const byChg = rows.slice().sort((a, b) => b.chg - a.chg);
+  // % movers restricted to fortunes >= $2B so tiny bases don't dominate
+  const byPct = rows.filter((r) => baselineWorth(r.p, period) >= 2000).sort((a, b) => b.pct - a.pct);
+
+  const tiles = [
+    { label: "Aggregate change", value: fmtDelta(agg), cls: cls(agg) },
+    { label: "Gainers", value: winners.toLocaleString(), cls: "pos" },
+    { label: "Losers", value: losers.toLocaleString(), cls: "neg" },
+    byChg[0] && { label: "Best ($)", value: byChg[0].p.name, delta: fmtDelta(byChg[0].chg), cls: cls(byChg[0].chg) },
+    byChg[0] && { label: "Worst ($)", value: byChg[byChg.length - 1].p.name, delta: fmtDelta(byChg[byChg.length - 1].chg), cls: cls(byChg[byChg.length - 1].chg) },
+    byPct[0] && { label: "Best (%)", value: byPct[0].p.name, delta: fmtPct(byPct[0].pct), cls: cls(byPct[0].pct) },
+    byPct[0] && { label: "Worst (%)", value: byPct[byPct.length - 1].p.name, delta: fmtPct(byPct[byPct.length - 1].pct), cls: cls(byPct[byPct.length - 1].pct) },
+  ].filter(Boolean);
+  $("perfTiles").innerHTML = tiles.map((t) => `
+    <div class="tile">
+      <div class="label">${t.label}</div>
+      <div class="value ${t.cls || ""}" style="font-size:${String(t.value).length > 12 ? 18 : 26}px">${t.value}</div>
+      ${t.delta ? `<div class="delta ${t.cls || ""}">${t.delta} ${def.label}</div>` : ""}
+    </div>`).join("");
+
+  const gainAbs = byChg.slice(0, 10);
+  const lossAbs = byChg.slice(-10).reverse().filter((r) => r.chg < 0);
+  const gainPct = byPct.slice(0, 10);
+  const lossPct = byPct.slice(-10).reverse().filter((r) => r.pct < 0);
+
+  makeChart("chPerfGainAbs", {
+    type: "bar",
+    data: barData(gainAbs.map((r) => r.p.name), gainAbs.map((r) => r.chg / 1000), C.up),
+    options: barOpts(true, " $B"),
+  });
+  makeChart("chPerfLossAbs", {
+    type: "bar",
+    data: barData(lossAbs.map((r) => r.p.name), lossAbs.map((r) => r.chg / 1000), C.down),
+    options: barOpts(true, " $B"),
+  });
+  makeChart("chPerfGainPct", {
+    type: "bar",
+    data: barData(gainPct.map((r) => r.p.name), gainPct.map((r) => r.pct), C.up),
+    options: barOpts(true, "%"),
+  });
+  makeChart("chPerfLossPct", {
+    type: "bar",
+    data: barData(lossPct.map((r) => r.p.name), lossPct.map((r) => r.pct), C.down),
+    options: barOpts(true, "%"),
+  });
+
+  // return distribution: % buckets, red below zero, green above
+  const buckets = [
+    ["< -50%", -Infinity, -50], ["-50 to -25%", -50, -25], ["-25 to -10%", -25, -10],
+    ["-10 to 0%", -10, 0], ["0 to +10%", 0, 10], ["+10 to +25%", 10, 25],
+    ["+25 to +50%", 25, 50], ["+50 to +100%", 50, 100], ["> +100%", 100, Infinity],
+  ];
+  const counts = buckets.map(([, lo, hi]) => rows.filter((r) => r.pct >= lo && r.pct < hi).length);
+  makeChart("chPerfDist", {
+    type: "bar",
+    data: {
+      labels: buckets.map(([l]) => l),
+      datasets: [{
+        data: counts,
+        backgroundColor: buckets.map(([, , hi]) => (hi <= 0 ? C.down : C.up)),
+        borderRadius: 4, borderSkipped: false, maxBarThickness: 24, categoryPercentage: 0.72,
+      }],
+    },
+    options: barOpts(false, " people"),
+  });
+
+  renderTrajectories();
+}
+
+const TRAJ_COLORS = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
+
+function renderTrajectories() {
+  const top = scoped().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0)).slice(0, 8);
+  const years = ["2021", "2022", "2023", "2024", "2025"];
+  const labels = [...years, "Latest list", "Now"];
+  const datasets = top.map((p, i) => ({
+    label: p.name,
+    data: [
+      ...years.map((y) => ((p.annual || {})[y] || null) && (p.annual[y] / 1000)),
+      p.archivedWorth > 0 ? p.archivedWorth / 1000 : null,
+      p.worth / 1000,
+    ],
+    borderColor: TRAJ_COLORS[i], backgroundColor: TRAJ_COLORS[i],
+    borderWidth: 2, pointRadius: 3.5, pointBorderColor: C.surface, pointBorderWidth: 2,
+    spanGaps: true, fill: false,
+  }));
+  makeChart("chTraject", {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: C.grid }, border: { display: false }, ticks: { callback: (v) => "$" + v + "B" } },
+      },
+      plugins: {
+        legend: { display: true, position: "bottom", labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, color: C.ink2 } },
+        tooltip: {
+          backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
+          titleColor: "#fff", bodyColor: C.ink2, padding: 10,
+          callbacks: { label: (c) => ` ${c.dataset.label}: $${c.parsed.y.toFixed(1)}B` },
+        },
+      },
+    },
+  });
+}
+
+/* ---------- person detail modal ---------- */
+function openPersonModal(p) {
+  const overlay = $("personModal");
+  overlay.hidden = false;
+
+  const head = $("modalHead");
+  head.innerHTML = "";
+  if (p.image) {
+    const img = document.createElement("img");
+    img.className = "avatar";
+    img.src = p.image.startsWith("//") ? "https:" + p.image : p.image;
+    img.alt = "";
+    img.onerror = () => img.replaceWith(avatarFallback(p.name));
+    head.appendChild(img);
+  } else head.appendChild(avatarFallback(p.name));
+  const info = document.createElement("div");
+  info.innerHTML = `<h3></h3><div class="meta"></div>`;
+  info.querySelector("h3").textContent = `#${p.rank ?? "?"} ${p.name}`;
+  info.querySelector(".meta").textContent =
+    [p.source, p.country, p.industry, p.age != null ? `age ${p.age}` : null].filter(Boolean).join(" · ");
+  head.appendChild(info);
+  const now = document.createElement("div");
+  now.className = "worth-now";
+  now.innerHTML = `<div class="big">${fmtMoney(p.worth)}</div><div class="sub2">net worth now</div>`;
+  head.appendChild(now);
+
+  const statDefs = [["day", "Today"], ["d30", "30D"], ["d90", "90D"], ["ytd", "YTD"], ["y1", "1Y"], ["y3", "3Y"], ["y5", "5Y"]];
+  $("modalStats").innerHTML = statDefs.map(([key, label]) => {
+    const { chg, pct } = periodChange(p, key);
+    return `<div class="mstat">
+      <div class="label">${label}</div>
+      <div class="val ${cls(chg)}">${fmtDelta(chg)}</div>
+      <div class="pct ${cls(pct)}">${fmtPct(pct)}</div>
+    </div>`;
+  }).join("");
+
+  const years = ["2021", "2022", "2023", "2024", "2025"];
+  makeChart("chPerson", {
+    type: "line",
+    data: {
+      labels: [...years, "Latest list", "Now"],
+      datasets: [{
+        data: [
+          ...years.map((y) => ((p.annual || {})[y] || null) && (p.annual[y] / 1000)),
+          p.archivedWorth > 0 ? p.archivedWorth / 1000 : null,
+          p.worth / 1000,
+        ],
+        borderColor: C.blue, backgroundColor: "rgba(57,135,229,.10)", fill: true,
+        borderWidth: 2, pointRadius: 4, pointBackgroundColor: C.blue,
+        pointBorderColor: C.surface, pointBorderWidth: 2, spanGaps: true,
+      }],
+    },
+    options: {
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: C.grid }, border: { display: false }, ticks: { callback: (v) => "$" + v + "B" } },
+      },
+      plugins: {
+        tooltip: {
+          backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
+          titleColor: "#fff", bodyColor: C.ink2, padding: 10,
+          callbacks: { label: (c) => ` $${c.parsed.y.toFixed(1)}B` },
+        },
+      },
+    },
+  });
+}
+
+function closePersonModal() {
+  $("personModal").hidden = true;
+  if (state.charts.chPerson) { state.charts.chPerson.destroy(); delete state.charts.chPerson; }
 }
 
 /* ---------- filters UI ---------- */
@@ -394,9 +655,13 @@ function bindEvents() {
       $("search").style.display = isRankings ? "" : "none";
       $("countryFilter").style.display = isRankings ? "" : "none";
       $("industryFilter").style.display = isRankings ? "" : "none";
-      if (!isRankings && state.dashboardDirty) {
+      if (tab.dataset.view === "analysis" && state.dashboardDirty) {
         renderDashboard();
         state.dashboardDirty = false;
+      }
+      if (tab.dataset.view === "performance" && state.perfDirty) {
+        renderPerformance();
+        state.perfDirty = false;
       }
     });
   });
@@ -429,6 +694,18 @@ function bindEvents() {
   new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && state.rendered < state.filtered.length) renderChunk();
   }, { rootMargin: "600px" }).observe($("sentinel"));
+
+  document.querySelectorAll("#periodbar .chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      state.period = chip.dataset.period;
+      document.querySelectorAll("#periodbar .chip").forEach((c) => c.classList.toggle("active", c === chip));
+      renderPerformance();
+    });
+  });
+
+  $("modalClose").addEventListener("click", closePersonModal);
+  $("personModal").addEventListener("click", (e) => { if (e.target === $("personModal")) closePersonModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("personModal").hidden) closePersonModal(); });
 }
 
 function setScope(scope) {
@@ -441,6 +718,12 @@ function setScope(scope) {
     state.dashboardDirty = false;
   } else {
     state.dashboardDirty = true;
+  }
+  if ($("view-performance").classList.contains("active")) {
+    renderPerformance();
+    state.perfDirty = false;
+  } else {
+    state.perfDirty = true;
   }
 }
 

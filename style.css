@@ -1,4 +1,4 @@
-/* Wealth Tracker — dark financial dashboard theme */
+/* Wealth Tracker – dark financial dashboard theme */
 :root {
   color-scheme: dark;
   --page: #0d0d0d;
@@ -10,7 +10,7 @@
   --grid: #2c2c2a;
   --baseline: #383835;
   --border: rgba(255, 255, 255, 0.10);
-  --series-1: #3987e5;   /* blue — magnitude charts */
+  --series-1: #3987e5;   /* blue – magnitude charts */
   --up: #0ca30c;
   --down: #d03b3b;
   --accent-2: #199e70;   /* aqua */
@@ -131,6 +131,54 @@ td.name { color: var(--ink); font-weight: 550; }
 .comp .legend { display: flex; gap: 16px; margin-top: 7px; flex-wrap: wrap; }
 .comp .legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12.5px; }
 .comp .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* ---------- performance ---------- */
+.periodbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+.periodbar-label { color: var(--muted); font-size: 12.5px; margin-right: 2px; }
+.chip {
+  background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.chip:hover { color: var(--ink-2); }
+.chip.active { background: var(--surface-2); color: var(--ink); font-weight: 600; border-color: var(--baseline); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.period-note { color: var(--muted); font-size: 12px; }
+
+tbody tr { cursor: pointer; }
+
+/* ---------- person modal ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 22px; width: min(680px, 100%); max-height: 90vh; overflow-y: auto;
+  position: relative;
+}
+.modal-close {
+  position: absolute; top: 10px; right: 12px; background: none; border: none;
+  color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.modal-head .avatar { width: 52px; height: 52px; }
+.modal-head h3 { margin: 0; font-size: 19px; }
+.modal-head .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.modal-head .worth-now { margin-left: auto; text-align: right; }
+.modal-head .worth-now .big { font-size: 26px; font-weight: 650; }
+.modal-head .worth-now .sub2 { color: var(--muted); font-size: 12px; }
+.modal-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px; margin-bottom: 14px;
+}
+.mstat { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.mstat .label { color: var(--muted); font-size: 11.5px; }
+.mstat .val { font-size: 14px; font-weight: 600; margin-top: 1px; }
+.mstat .pct { font-size: 11.5px; }
+.modal-chart { height: 240px; }
+.modal-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
 
 .error {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
