@@ -44,9 +44,11 @@ Routes: `/` serves the app, `/api/billionaires` is the live data proxy,
   industry and country, a return distribution histogram, and wealth
   trajectories of the current top 8.
 - **Analysis**: stat tiles (combined/average/median wealth, today's aggregate
-  move), top daily gainers/losers, billionaire counts by country and industry,
-  net-worth distribution, wealth-concentration curve, age distribution,
-  self-made and gender composition.
+  move, $100B+ club size, top-10 share, Gini coefficient, median age), top
+  daily gainers/losers, billionaire counts and combined wealth by country and
+  industry, net-worth distribution, wealth-concentration curve, combined
+  wealth of the current list over time, age distribution, average net worth
+  by age, self-made and gender composition.
 
 ## Architecture
 

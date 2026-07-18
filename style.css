@@ -20,12 +20,18 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: var(--page);
+  background: var(--page) radial-gradient(900px 320px at 50% -120px, #181a1c, var(--page) 70%) no-repeat;
   color: var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.45;
 }
+::selection { background: rgba(57, 135, 229, 0.35); }
+:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--baseline); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #4a4a46; }
+::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- header / tabs / filters ---------- */
 .topbar {
@@ -35,6 +41,15 @@ body {
 .topbar h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
 .sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .asof { color: var(--ink-2); font-size: 13px; }
+.asof.live::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--up); margin-right: 7px; vertical-align: 1px;
+  animation: livepulse 2.4s ease-in-out infinite;
+}
+@keyframes livepulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 .tabs { display: flex; gap: 4px; padding: 10px 24px 0; border-bottom: 1px solid var(--border); }
 .tab {
@@ -109,11 +124,15 @@ td.name { color: var(--ink); font-weight: 550; }
 }
 .tile {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 14px 16px;
+  padding: 14px 16px; transition: border-color 0.15s;
 }
-.tile .label { color: var(--muted); font-size: 12.5px; }
-.tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
-.tile .delta { font-size: 12.5px; margin-top: 2px; color: var(--ink-2); }
+.tile:hover { border-color: rgba(255, 255, 255, 0.20); }
+.tile .label {
+  color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.05em; font-weight: 550;
+}
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.tile .delta { font-size: 12.5px; margin-top: 2px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 .grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -124,8 +143,9 @@ td.name { color: var(--ink); font-weight: 550; }
 @media (max-width: 760px) { .grid.pairs { grid-template-columns: 1fr; } }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 16px;
+  padding: 16px; transition: border-color 0.15s;
 }
+.card:hover { border-color: rgba(255, 255, 255, 0.18); }
 .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
 .card .units { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
 .chartbox { position: relative; height: 260px; }

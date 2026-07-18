@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wealth Tracker – World's Richest People</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
@@ -108,10 +109,14 @@
       <div class="card"><h2>Top 10 daily gainers</h2><div class="chartbox"><canvas id="chGainers"></canvas></div></div>
       <div class="card"><h2>Top 10 daily losers</h2><div class="chartbox"><canvas id="chLosers"></canvas></div></div>
       <div class="card"><h2>Billionaires by country <span class="units">people, top 12</span></h2><div class="chartbox tall"><canvas id="chCountry"></canvas></div></div>
+      <div class="card"><h2>Wealth by country <span class="units">combined net worth, top 12</span></h2><div class="chartbox tall"><canvas id="chWealthCountry"></canvas></div></div>
       <div class="card"><h2>Billionaires by industry <span class="units">people</span></h2><div class="chartbox tall"><canvas id="chIndustry"></canvas></div></div>
+      <div class="card"><h2>Wealth by industry <span class="units">combined net worth</span></h2><div class="chartbox tall"><canvas id="chWealthIndustry"></canvas></div></div>
       <div class="card"><h2>Net-worth distribution <span class="units">people per bracket</span></h2><div class="chartbox"><canvas id="chDist"></canvas></div></div>
       <div class="card"><h2>Wealth concentration <span class="units">cumulative share of total</span></h2><div class="chartbox"><canvas id="chConc"></canvas></div></div>
+      <div class="card"><h2>Combined wealth over time <span class="units">current list members, annual list values</span></h2><div class="chartbox"><canvas id="chWealthTime"></canvas></div></div>
       <div class="card"><h2>Age distribution <span class="units">people per decade</span></h2><div class="chartbox"><canvas id="chAge"></canvas></div></div>
+      <div class="card"><h2>Average net worth by age <span class="units">per decade</span></h2><div class="chartbox"><canvas id="chAvgAge"></canvas></div></div>
       <div class="card">
         <h2>Composition</h2>
         <div id="compBars"></div>

@@ -72,6 +72,7 @@ async function loadData() {
     p.est90 = est;
   });
   $("asof").textContent = `As of ${new Date(data.asOf).toLocaleString()} · ${data.count.toLocaleString()} billionaires · source: Forbes real-time list`;
+  $("asof").classList.add("live");
 }
 
 /* ---------- period returns ----------
@@ -309,6 +310,18 @@ const barOpts = (horizontal, unit) => ({
   },
 });
 
+// bar options for $-valued charts: axis ticks and tooltips through fmtMoney
+// (values stay in $ millions so "$820B" / "$1.53T" render naturally)
+function moneyBarOpts(horizontal) {
+  const o = barOpts(horizontal, "");
+  const axis = horizontal ? o.scales.x : o.scales.y;
+  axis.ticks = { callback: (v) => (v === 0 ? "$0" : fmtMoney(v)) };
+  o.plugins.tooltip.callbacks = {
+    label: (c) => ` ${fmtMoney(horizontal ? c.parsed.x : c.parsed.y)}`,
+  };
+  return o;
+}
+
 // horizontal-only x-tick fix helper
 function compact(v) {
   if (Math.abs(v) >= 1000) return (v / 1000).toLocaleString() + "k";
@@ -336,6 +349,18 @@ function renderDashboard() {
   const gainers = withDaily.slice().sort((a, b) => b.dailyChange - a.dailyChange).slice(0, 10);
   const losers = withDaily.slice().sort((a, b) => a.dailyChange - b.dailyChange).slice(0, 10);
 
+  // inequality stats
+  const desc = rows.map(worthOf).sort((a, b) => b - a);
+  const top10Share = total ? (desc.slice(0, 10).reduce((s, v) => s + v, 0) / total) * 100 : null;
+  // Gini over the billionaire set itself (0 = equal fortunes, 1 = one person holds all)
+  let weighted = 0;
+  sortedW.forEach((w, i) => { weighted += (i + 1) * w; });
+  const gini = sortedW.length && total ? (2 * weighted) / (sortedW.length * total) - (sortedW.length + 1) / sortedW.length : null;
+  const centi = rows.filter((p) => worthOf(p) >= 100000).length;
+  const ages = rows.filter((p) => p.age != null && p.age > 10 && p.age < 110);
+  const ageSorted = ages.map((p) => p.age).sort((a, b) => a - b);
+  const medianAge = ageSorted.length ? ageSorted[Math.floor(ageSorted.length / 2)] : null;
+
   // stat tiles
   const tiles = [
     { label: "People", value: rows.length.toLocaleString() },
@@ -343,6 +368,10 @@ function renderDashboard() {
     { label: "Average", value: fmtMoney(rows.length ? total / rows.length : 0) },
     { label: "Median", value: fmtMoney(median) },
     { label: "Today's aggregate move", value: fmtDelta(dayMove), cls: cls(dayMove) },
+    { label: "$100B+ club", value: centi.toLocaleString() },
+    top10Share != null && { label: "Top 10 hold", value: top10Share.toFixed(1) + "%" },
+    gini != null && { label: "Gini coefficient", value: gini.toFixed(2) },
+    medianAge != null && { label: "Median age", value: String(medianAge) },
     gainers[0] && { label: "Biggest gainer", value: gainers[0].name, delta: fmtDelta(gainers[0].dailyChange), cls: "pos" },
     losers[0] && { label: "Biggest loser", value: losers[0].name, delta: fmtDelta(losers[0].dailyChange), cls: "neg" },
   ].filter(Boolean);
@@ -388,6 +417,29 @@ function renderDashboard() {
     options: barOpts(true, " people"),
   });
 
+  // combined wealth by country (top 12 + Other) and by industry, in aqua so
+  // $-magnitude charts read differently from the blue people-count charts
+  const sumBy = (key) => {
+    const m = new Map();
+    rows.forEach((p) => { const k = p[key] || "Unknown"; m.set(k, (m.get(k) || 0) + worthOf(p)); });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const wCountries = sumBy("country");
+  const wTop = wCountries.slice(0, 12);
+  const wOther = wCountries.slice(12).reduce((s, [, v]) => s + v, 0);
+  if (wOther > 0) wTop.push(["Other", wOther]);
+  makeChart("chWealthCountry", {
+    type: "bar",
+    data: barData(wTop.map(([k]) => k), wTop.map(([, v]) => v), C.aqua),
+    options: moneyBarOpts(true),
+  });
+  const wIndustries = sumBy("industry");
+  makeChart("chWealthIndustry", {
+    type: "bar",
+    data: barData(wIndustries.map(([k]) => k), wIndustries.map(([, v]) => v), C.aqua),
+    options: moneyBarOpts(true),
+  });
+
   // net-worth distribution
   const bins = [
     ["$1–2B", 1000, 2000], ["$2–5B", 2000, 5000], ["$5–10B", 5000, 10000],
@@ -402,7 +454,6 @@ function renderDashboard() {
   });
 
   // concentration: cumulative share held by top N
-  const desc = rows.map(worthOf).sort((a, b) => b - a);
   const marks = [10, 25, 50, 100, 250, 500, 1000, desc.length].filter((n, i, a) => n <= desc.length && a.indexOf(n) === i);
   let cum = 0, ci = 0;
   const cumAt = [];
@@ -432,8 +483,47 @@ function renderDashboard() {
     },
   });
 
+  // combined wealth of the current list members across the annual lists
+  const years = ["2021", "2022", "2023", "2024", "2025"];
+  const timeLabels = [...years, "Latest list", "Now"];
+  const timeSums = [];
+  const timeCounts = [];
+  years.forEach((y) => {
+    let s = 0, n = 0;
+    rows.forEach((p) => { const w = (p.annual || {})[y]; if (w > 0) { s += w; n++; } });
+    timeSums.push(s); timeCounts.push(n);
+  });
+  const archived = rows.filter((p) => p.archivedWorth > 0);
+  timeSums.push(archived.reduce((s, p) => s + p.archivedWorth, 0));
+  timeCounts.push(archived.length);
+  timeSums.push(total);
+  timeCounts.push(rows.length);
+  makeChart("chWealthTime", {
+    type: "line",
+    data: {
+      labels: timeLabels,
+      datasets: [{
+        data: timeSums, borderColor: C.aqua, backgroundColor: "rgba(25,158,112,.10)",
+        fill: true, borderWidth: 2, pointRadius: 4, pointBackgroundColor: C.aqua,
+        pointBorderColor: C.surface, pointBorderWidth: 2,
+      }],
+    },
+    options: {
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: C.grid }, border: { display: false }, ticks: { callback: (v) => fmtMoney(v) } },
+      },
+      plugins: {
+        tooltip: {
+          backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
+          titleColor: "#fff", bodyColor: C.ink2, padding: 10,
+          callbacks: { label: (c) => ` ${fmtMoney(c.parsed.y)} across ${timeCounts[c.dataIndex].toLocaleString()} people` },
+        },
+      },
+    },
+  });
+
   // age distribution
-  const ages = rows.filter((p) => p.age != null && p.age > 10 && p.age < 110);
   const decades = new Map();
   ages.forEach((p) => { const d = Math.floor(p.age / 10) * 10; decades.set(d, (decades.get(d) || 0) + 1); });
   const dkeys = [...decades.keys()].sort((a, b) => a - b);
@@ -441,6 +531,25 @@ function renderDashboard() {
     type: "bar",
     data: barData(dkeys.map((d) => `${d}s`), dkeys.map((d) => decades.get(d)), C.blue),
     options: barOpts(false, " people"),
+  });
+
+  // average net worth per age decade
+  const decadeWorth = new Map();
+  ages.forEach((p) => {
+    const d = Math.floor(p.age / 10) * 10;
+    if (!decadeWorth.has(d)) decadeWorth.set(d, []);
+    decadeWorth.get(d).push(worthOf(p));
+  });
+  makeChart("chAvgAge", {
+    type: "bar",
+    data: barData(
+      dkeys.map((d) => `${d}s`),
+      dkeys.map((d) => {
+        const ws = decadeWorth.get(d) || [];
+        return ws.length ? ws.reduce((s, v) => s + v, 0) / ws.length : 0;
+      }),
+      C.aqua),
+    options: moneyBarOpts(false),
   });
 
   // composition stacked bars (self-made, gender) – pure CSS
