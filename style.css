@@ -66,7 +66,9 @@ main { padding: 0 24px 40px; }
 
 /* ---------- rankings table ---------- */
 .table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; min-width: 900px; }
+/* fixed layout: column widths come from the colgroup, so late-rendered long
+   values (country names etc.) can never reflow and shift the whole table */
+table { border-collapse: collapse; width: 100%; min-width: 1150px; table-layout: fixed; }
 thead th {
   position: sticky; top: 0; background: var(--page); z-index: 2;
   text-align: left; color: var(--muted); font-weight: 550; font-size: 12.5px;
@@ -78,12 +80,14 @@ thead th.sorted-asc::after { content: " ▲"; font-size: 9px; color: var(--ink-2
 thead th.sorted-desc::after { content: " ▼"; font-size: 9px; color: var(--ink-2); }
 tbody td {
   padding: 6px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap;
-  color: var(--ink-2);
+  color: var(--ink-2); overflow: hidden; text-overflow: ellipsis;
 }
 tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover td { background: var(--surface); }
 td.name { color: var(--ink); font-weight: 550; }
-.person { display: flex; align-items: center; gap: 10px; }
+.person { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.person > div:last-child { min-width: 0; }
+.person > div:last-child > div { overflow: hidden; text-overflow: ellipsis; }
 .avatar {
   width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
   background: var(--surface-2); flex: none;
@@ -114,6 +118,9 @@ td.name { color: var(--ink); font-weight: 550; }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 14px;
 }
+/* paired cards (gainers | losers) stay side by side so rows read symmetric */
+.grid.pairs { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 760px) { .grid.pairs { grid-template-columns: 1fr; } }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px;
@@ -162,7 +169,7 @@ tbody tr { cursor: pointer; }
   color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px;
 }
 .modal-close:hover { color: var(--ink); }
-.modal-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.modal-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; padding-right: 34px; }
 .modal-head .avatar { width: 52px; height: 52px; }
 .modal-head h3 { margin: 0; font-size: 19px; }
 .modal-head .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }

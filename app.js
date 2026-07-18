@@ -60,6 +60,12 @@ async function loadData() {
     const age = p.birthDate ? Math.floor((now - p.birthDate) / (365.25 * 24 * 3600e3)) : null;
     return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, chg1y, pct1y, age };
   });
+  // 3-month returns need the snapshot history loaded above, so a second pass
+  state.people.forEach((p) => {
+    const { chg, pct } = periodChange(p, "d90");
+    p.chg90 = chg;
+    p.pct90 = pct;
+  });
   $("asof").textContent = `As of ${new Date(data.asOf).toLocaleString()} · ${data.count.toLocaleString()} billionaires · source: Forbes real-time list`;
 }
 
@@ -191,15 +197,16 @@ function buildRow(p) {
   const tdWorth = document.createElement("td"); tdWorth.className = "num name"; tdWorth.textContent = fmtMoney(p.worth);
   const tdDay = document.createElement("td"); tdDay.className = `num ${cls(p.dailyChange)}`; tdDay.textContent = fmtDelta(p.dailyChange);
   const tdDayP = document.createElement("td"); tdDayP.className = `num ${cls(p.dailyPct)}`; tdDayP.textContent = fmtPct(p.dailyPct);
-  const tdYtd = document.createElement("td"); tdYtd.className = `num ${cls(p.ytdChange)}`; tdYtd.textContent = fmtDelta(p.ytdChange);
-  const tdYtdP = document.createElement("td"); tdYtdP.className = `num ${cls(p.ytdPct)}`; tdYtdP.textContent = fmtPct(p.ytdPct);
+  const td90 = document.createElement("td"); td90.className = `num ${cls(p.chg90)}`; td90.textContent = fmtDelta(p.chg90);
+  const td90P = document.createElement("td"); td90P.className = `num ${cls(p.pct90)}`; td90P.textContent = fmtPct(p.pct90);
   const td1y = document.createElement("td"); td1y.className = `num ${cls(p.chg1y)}`; td1y.textContent = fmtDelta(p.chg1y);
   const td1yP = document.createElement("td"); td1yP.className = `num ${cls(p.pct1y)}`; td1yP.textContent = fmtPct(p.pct1y);
 
   const tdSpark = document.createElement("td");
-  if (p.spark && p.spark.length > 1) tdSpark.appendChild(sparkline(p.spark));
+  const trend = yearlySeries(p);
+  if (trend.length > 1) tdSpark.appendChild(sparkline(trend));
 
-  tr.append(tdRank, tdName, tdCountry, tdInd, tdWorth, tdDay, tdDayP, tdYtd, tdYtdP, td1y, td1yP, tdSpark);
+  tr.append(tdRank, tdName, tdCountry, tdInd, tdWorth, tdDay, tdDayP, td90, td90P, td1y, td1yP, tdSpark);
   tr.addEventListener("click", () => openPersonModal(p));
   return tr;
 }
@@ -209,6 +216,13 @@ function avatarFallback(name) {
   el.className = "avatar fallback";
   el.textContent = (name || "?").split(" ").map((w) => w[0]).slice(0, 2).join("");
   return el;
+}
+
+// annual list values 2021-2025 + latest list + live value, nulls skipped
+function yearlySeries(p) {
+  const vals = ["2021", "2022", "2023", "2024", "2025"].map((y) => (p.annual || {})[y]);
+  vals.push(p.archivedWorth, p.worth);
+  return vals.filter((v) => v > 0);
 }
 
 function sparkline(values) {
@@ -329,27 +343,27 @@ function renderDashboard() {
     options: barOpts(true, " $B"),
   });
 
-  // wealth by country (top 12 + Other)
-  const byKey = (key) => {
+  // people counts by country (top 12 + Other) and by industry
+  const countBy = (key) => {
     const m = new Map();
-    rows.forEach((p) => { const k = p[key] || "Unknown"; m.set(k, (m.get(k) || 0) + worthOf(p)); });
+    rows.forEach((p) => { const k = p[key] || "Unknown"; m.set(k, (m.get(k) || 0) + 1); });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
-  const countries = byKey("country");
+  const countries = countBy("country");
   const top = countries.slice(0, 12);
   const other = countries.slice(12).reduce((s, [, v]) => s + v, 0);
   if (other > 0) top.push(["Other", other]);
   makeChart("chCountry", {
     type: "bar",
-    data: barData(top.map(([k]) => k), top.map(([, v]) => v / 1000), C.blue),
-    options: barOpts(true, " $B"),
+    data: barData(top.map(([k]) => k), top.map(([, v]) => v), C.blue),
+    options: barOpts(true, " people"),
   });
 
-  const industries = byKey("industry");
+  const industries = countBy("industry");
   makeChart("chIndustry", {
     type: "bar",
-    data: barData(industries.map(([k]) => k), industries.map(([, v]) => v / 1000), C.blue),
-    options: barOpts(true, " $B"),
+    data: barData(industries.map(([k]) => k), industries.map(([, v]) => v), C.blue),
+    options: barOpts(true, " people"),
   });
 
   // net-worth distribution
@@ -455,8 +469,19 @@ function renderPerformance() {
   // % movers restricted to fortunes >= $2B so tiny bases don't dominate
   const byPct = rows.filter((r) => baselineWorth(r.p, period) >= 2000).sort((a, b) => b.pct - a.pct);
 
+  const median = (arr) => (arr.length ? arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null);
+  const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+  const avgChg = mean(rows.map((r) => r.chg));
+  const medChg = median(rows.map((r) => r.chg));
+  const avgPct = mean(rows.map((r) => r.pct));
+  const medPct = median(rows.map((r) => r.pct));
+
   const tiles = [
     { label: "Aggregate change", value: fmtDelta(agg), cls: cls(agg) },
+    { label: "Average change", value: fmtDelta(avgChg), cls: cls(avgChg) },
+    { label: "Median change", value: fmtDelta(medChg), cls: cls(medChg) },
+    { label: "Average return", value: fmtPct(avgPct), cls: cls(avgPct) },
+    { label: "Median return", value: fmtPct(medPct), cls: cls(medPct) },
     { label: "Gainers", value: winners.toLocaleString(), cls: "pos" },
     { label: "Losers", value: losers.toLocaleString(), cls: "neg" },
     byChg[0] && { label: "Best ($)", value: byChg[0].p.name, delta: fmtDelta(byChg[0].chg), cls: cls(byChg[0].chg) },
@@ -496,6 +521,36 @@ function renderPerformance() {
     data: barData(lossPct.map((r) => r.p.name), lossPct.map((r) => r.pct), C.down),
     options: barOpts(true, "%"),
   });
+
+  // average return by industry and by country (top 12 by people), sign-colored
+  const groupAvg = (key, limit) => {
+    const groups = new Map();
+    rows.forEach((r) => {
+      const k = r.p[key];
+      if (!k) return;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(r.pct);
+    });
+    let entries = [...groups.entries()];
+    if (limit) entries = entries.sort((a, b) => b[1].length - a[1].length).slice(0, limit);
+    return entries
+      .map(([k, pcts]) => [k, mean(pcts)])
+      .sort((a, b) => b[1] - a[1]);
+  };
+  const signBar = (id, entries) => makeChart(id, {
+    type: "bar",
+    data: {
+      labels: entries.map(([k]) => k),
+      datasets: [{
+        data: entries.map(([, v]) => v),
+        backgroundColor: entries.map(([, v]) => (v < 0 ? C.down : C.up)),
+        borderRadius: 4, borderSkipped: false, maxBarThickness: 18, categoryPercentage: 0.72,
+      }],
+    },
+    options: barOpts(true, "%"),
+  });
+  signBar("chAvgIndustry", groupAvg("industry"));
+  signBar("chAvgCountry", groupAvg("country", 12));
 
   // return distribution: % buckets, red below zero, green above
   const buckets = [

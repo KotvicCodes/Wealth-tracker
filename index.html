@@ -36,6 +36,20 @@
   <section id="view-rankings" class="view active">
     <div class="table-wrap">
       <table id="rankTable">
+        <colgroup>
+          <col style="width:48px">
+          <col>
+          <col style="width:150px">
+          <col style="width:160px">
+          <col style="width:96px">
+          <col style="width:92px">
+          <col style="width:84px">
+          <col style="width:92px">
+          <col style="width:84px">
+          <col style="width:92px">
+          <col style="width:84px">
+          <col style="width:116px">
+        </colgroup>
         <thead>
           <tr>
             <th data-sort="rank" class="num sorted-asc">#</th>
@@ -45,11 +59,11 @@
             <th data-sort="worth" class="num">Net worth</th>
             <th data-sort="dailyChange" class="num">Day Δ</th>
             <th data-sort="dailyPct" class="num">Day %</th>
-            <th data-sort="ytdChange" class="num">YTD Δ</th>
-            <th data-sort="ytdPct" class="num">YTD %</th>
+            <th data-sort="chg90" class="num">3M Δ</th>
+            <th data-sort="pct90" class="num">3M %</th>
             <th data-sort="chg1y" class="num">1Y Δ</th>
             <th data-sort="pct1y" class="num">1Y %</th>
-            <th>Today</th>
+            <th>5Y trend</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -74,11 +88,13 @@
 
     <div class="tiles" id="perfTiles"></div>
 
-    <div class="grid">
-      <div class="card"><h2 id="hGain$">Top gainers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfGainAbs"></canvas></div></div>
-      <div class="card"><h2 id="hLoss$">Top losers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfLossAbs"></canvas></div></div>
+    <div class="grid pairs">
+      <div class="card"><h2>Top gainers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfGainAbs"></canvas></div></div>
+      <div class="card"><h2>Top losers <span class="units">$B</span></h2><div class="chartbox"><canvas id="chPerfLossAbs"></canvas></div></div>
       <div class="card"><h2>Top gainers <span class="units">%</span></h2><div class="chartbox"><canvas id="chPerfGainPct"></canvas></div></div>
       <div class="card"><h2>Top losers <span class="units">%</span></h2><div class="chartbox"><canvas id="chPerfLossPct"></canvas></div></div>
+      <div class="card"><h2>Average return by industry <span class="units">%</span></h2><div class="chartbox tall"><canvas id="chAvgIndustry"></canvas></div></div>
+      <div class="card"><h2>Average return by country <span class="units">%, top 12 by people</span></h2><div class="chartbox tall"><canvas id="chAvgCountry"></canvas></div></div>
       <div class="card"><h2>Return distribution <span class="units">people per % bucket</span></h2><div class="chartbox"><canvas id="chPerfDist"></canvas></div></div>
       <div class="card"><h2>Wealth trajectories <span class="units">top 8 today, $B, annual list values</span></h2><div class="chartbox"><canvas id="chTraject"></canvas></div></div>
     </div>
@@ -90,8 +106,8 @@
     <div class="grid">
       <div class="card"><h2>Top 10 daily gainers</h2><div class="chartbox"><canvas id="chGainers"></canvas></div></div>
       <div class="card"><h2>Top 10 daily losers</h2><div class="chartbox"><canvas id="chLosers"></canvas></div></div>
-      <div class="card"><h2>Wealth by country <span class="units">$B, top 12</span></h2><div class="chartbox tall"><canvas id="chCountry"></canvas></div></div>
-      <div class="card"><h2>Wealth by industry <span class="units">$B</span></h2><div class="chartbox tall"><canvas id="chIndustry"></canvas></div></div>
+      <div class="card"><h2>Billionaires by country <span class="units">people, top 12</span></h2><div class="chartbox tall"><canvas id="chCountry"></canvas></div></div>
+      <div class="card"><h2>Billionaires by industry <span class="units">people</span></h2><div class="chartbox tall"><canvas id="chIndustry"></canvas></div></div>
       <div class="card"><h2>Net-worth distribution <span class="units">people per bracket</span></h2><div class="chartbox"><canvas id="chDist"></canvas></div></div>
       <div class="card"><h2>Wealth concentration <span class="units">cumulative share of total</span></h2><div class="chartbox"><canvas id="chConc"></canvas></div></div>
       <div class="card"><h2>Age distribution <span class="units">people per decade</span></h2><div class="chartbox"><canvas id="chAge"></canvas></div></div>
