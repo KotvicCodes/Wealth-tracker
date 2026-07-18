@@ -38,19 +38,7 @@ CACHE_TTL = 10 * 60  # seconds
 _cache = {"body": None, "fetched_at": 0.0}
 _cache_lock = threading.Lock()
 
-SPARK_POINTS = 40  # downsample intraday history to this many points
-
-
-def _downsample(values, n):
-    if len(values) <= n:
-        return values
-    step = (len(values) - 1) / (n - 1)
-    return [values[round(i * step)] for i in range(n)]
-
-
 def _trim_person(p):
-    history = ((p.get("wealthHistory") or {}).get("lastDay")) or []
-    spark = _downsample([round(pt["value"]) for pt in history if "value" in pt], SPARK_POINTS)
     industries = p.get("industries") or []
     return {
         "rank": p.get("rank"),
@@ -65,7 +53,6 @@ def _trim_person(p):
         "birthDate": p.get("birthDate"),       # ms epoch
         "selfMade": p.get("selfMade"),
         "image": p.get("squareImage"),
-        "spark": spark,
     }
 
 
