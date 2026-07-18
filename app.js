@@ -871,29 +871,68 @@ function renderOdds() {
   const avgOneIn = 1 / baseline;
 
   const factorRows = factors.map((f) => {
-    // log-scaled bar: ×1 sits at the center, ×100 fills right, ×0.01 empties left
+    // diverging log-scaled bar: ×1 sits at the center tick, ×100 fills right,
+    // ×0.01 fills left, so help and hurt read at a glance
     const w = Math.max(3, Math.min(100, 50 + 25 * Math.log10(f.mult || 1e-4)));
+    const seg = f.mult >= 1
+      ? `left:50%;width:${(w - 50).toFixed(1)}%`
+      : `left:${w.toFixed(1)}%;width:${(50 - w).toFixed(1)}%`;
+    const dir = f.mult >= 1 ? "pos" : "neg";
     return `<div class="ofactor">
       <div class="ofactor-head">
         <span class="ofactor-label">${f.label}</span>
-        <span class="ofactor-mult ${f.mult >= 1 ? "pos" : "neg"}">×${fmtTimes(f.mult)}</span>
+        <span class="ofactor-mult ${dir}">×${fmtTimes(f.mult)}</span>
       </div>
-      <div class="ofactor-bar"><span style="width:${w}%"></span></div>
+      <div class="ofactor-bar"><span class="${dir}" style="${seg}"></span></div>
       <div class="ofactor-detail">${f.detail}</div>
     </div>`;
   }).join("");
 
+  const compareBox = factors.length
+    ? `<div class="odds-compare-box">
+        <div class="ocb-mult ${rel >= 1 ? "pos" : "neg"}">×${fmtTimes(rel)}</div>
+        <div class="ocb-label">${rel >= 1 ? "more likely than" : "as likely as"} the average person<br>(${fmtOneIn(avgOneIn)})</div>
+      </div>`
+    : `<div class="odds-compare-box">
+        <div class="ocb-mult">×1.0</div>
+        <div class="ocb-label">the world-average adult's odds</div>
+      </div>`;
+
+  const presetChips = ODDS_PRESETS.map((p, i) =>
+    `<button class="chip" data-preset="${i}">${p.label}</button>`).join("");
+
   $("oddsResult").innerHTML = `
-    <div class="odds-big">${fmtOneIn(oneIn)}</div>
-    <div class="odds-sub">chance that a person with this profile is on today's list of
-      ${total.toLocaleString()} billionaires</div>
-    <div class="odds-compare ${rel >= 1 ? "pos" : "neg"}">
-      ${factors.length
-        ? `×${fmtTimes(rel)} ${rel >= 1 ? "more" : "as"} likely ${rel >= 1 ? "than" : "as"} the average person (${fmtOneIn(avgOneIn)})`
-        : `this is the world-average adult's odds`}
+    <div class="odds-hero">
+      <div>
+        <div class="odds-big">${fmtOneIn(oneIn)}</div>
+        <div class="odds-sub">chance that a person with this profile is on today's list</div>
+      </div>
+      ${compareBox}
     </div>
-    ${factorRows ? `<div class="odds-factors"><div class="odds-factors-title">Factor breakdown</div>${factorRows}</div>` : ""}
-    ${noData ? `<div class="odds-warn">Factors without reference data count as ×1.</div>` : ""}`;
+    <div class="odds-stats">
+      <div class="odds-stat"><div class="label">Billionaires today</div><div class="value">${total.toLocaleString()}</div></div>
+      <div class="odds-stat"><div class="label">Adults worldwide</div><div class="value">~${(WORLD_ADULTS_M / 1000).toFixed(1)}B</div></div>
+      <div class="odds-stat"><div class="label">World average</div><div class="value">${fmtOneIn(avgOneIn)}</div></div>
+    </div>
+    ${factorRows
+      ? `<div class="odds-factors"><div class="odds-factors-title">Factor breakdown</div>${factorRows}</div>`
+      : `<div class="odds-empty">Pick a country, industry or gender on the left to see how each factor shifts the odds.</div>`}
+    ${noData ? `<div class="odds-warn">Factors without reference data count as ×1.</div>` : ""}
+    <div class="odds-presets"><span class="plabel">Try a profile:</span>${presetChips}</div>`;
+}
+
+const ODDS_PRESETS = [
+  { label: "Man in US tech", c: "United States", i: "Technology", g: "M" },
+  { label: "Hong Kong finance", c: "Hong Kong", i: "Finance & Investments", g: "" },
+  { label: "Woman in French fashion", c: "France", i: "Fashion & Retail", g: "F" },
+  { label: "Clear", c: "", i: "", g: "" },
+];
+
+function applyOddsPreset(p) {
+  $("oddsCountry").value = p.c;
+  $("oddsIndustry").value = p.i;
+  $("oddsGender").value = p.g;
+  renderOdds();
 }
 
 function populateOdds() {
@@ -910,6 +949,11 @@ function populateOdds() {
   fillCounted($("oddsIndustry"), "industry");
   ["oddsCountry", "oddsIndustry", "oddsGender"].forEach((id) =>
     $(id).addEventListener("change", renderOdds));
+  // preset chips are re-rendered with every result, so delegate from the container
+  $("oddsResult").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-preset]");
+    if (btn) applyOddsPreset(ODDS_PRESETS[btn.dataset.preset]);
+  });
 }
 
 /* ---------- person detail modal ---------- */
