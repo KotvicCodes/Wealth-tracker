@@ -40,15 +40,15 @@
           <col style="width:48px">
           <col>
           <col style="width:150px">
-          <col style="width:160px">
-          <col style="width:96px">
-          <col style="width:92px">
-          <col style="width:84px">
-          <col style="width:92px">
-          <col style="width:84px">
-          <col style="width:92px">
-          <col style="width:84px">
-          <col style="width:116px">
+          <col style="width:150px">
+          <col style="width:100px">
+          <col style="width:100px">
+          <col style="width:100px">
+          <col style="width:104px">
+          <col style="width:104px">
+          <col style="width:100px">
+          <col style="width:100px">
+          <col style="width:120px">
         </colgroup>
         <thead>
           <tr>
@@ -70,6 +70,7 @@
       </table>
       <div id="sentinel"></div>
       <div id="rowCount" class="rowcount"></div>
+      <div id="tableNote" class="rowcount tablenote"></div>
     </div>
   </section>
 
@@ -77,8 +78,8 @@
     <div class="periodbar" id="periodbar">
       <span class="periodbar-label">Change over</span>
       <button data-period="day" class="chip active">Day</button>
-      <button data-period="d30" class="chip">30D</button>
-      <button data-period="d90" class="chip">90D</button>
+      <button data-period="m1" class="chip">1M</button>
+      <button data-period="m3" class="chip">3M</button>
       <button data-period="ytd" class="chip">YTD</button>
       <button data-period="y1" class="chip">1Y</button>
       <button data-period="y3" class="chip">3Y</button>
@@ -125,7 +126,7 @@
     <div class="modal-head" id="modalHead"></div>
     <div class="modal-stats" id="modalStats"></div>
     <div class="chartbox modal-chart"><canvas id="chPerson"></canvas></div>
-    <p class="modal-note">Net worth by Forbes annual list (April each year), latest list figure, and the live value now.</p>
+    <p class="modal-note">Net worth by Forbes annual list (April each year), latest list figure, and the live value now. Values marked * are estimated from the latest annual list until daily history accumulates.</p>
   </div>
 </div>
 

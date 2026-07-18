@@ -60,23 +60,29 @@ async function loadData() {
     const age = p.birthDate ? Math.floor((now - p.birthDate) / (365.25 * 24 * 3600e3)) : null;
     return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, chg1y, pct1y, age };
   });
-  // 3-month returns need the snapshot history loaded above, so a second pass
+  // days since the latest annual list, used to date archivedWorth for estimates
+  state.archivedAgeDays = data.archivedAsOf
+    ? (now - new Date(data.archivedAsOf).getTime()) / 86400e3
+    : null;
+  // 3-month returns need the history/estimate helpers above, so a second pass
   state.people.forEach((p) => {
-    const { chg, pct } = periodChange(p, "d90");
+    const { chg, pct, est } = periodChange(p, "m3");
     p.chg90 = chg;
     p.pct90 = pct;
+    p.est90 = est;
   });
   $("asof").textContent = `As of ${new Date(data.asOf).toLocaleString()} · ${data.count.toLocaleString()} billionaires · source: Forbes real-time list`;
 }
 
 /* ---------- period returns ----------
    Baselines per period: day and YTD come from the live feed, 1Y/3Y/5Y from
-   past annual Forbes lists, 30D/90D from this app's own daily snapshots
-   (data/history.json), which build up as the server runs. */
+   past annual Forbes lists. 1M/3M prefer this app's own daily snapshots
+   (data/history.json), and until ~90 days of those accumulate they fall back
+   to an estimate interpolated from the latest annual list (see estimateBaseline). */
 const PERIODS = {
   day: { label: "today" },
-  d30: { label: "past 30 days", days: 30 },
-  d90: { label: "past 90 days", days: 90 },
+  m1: { label: "past month", days: 30 },
+  m3: { label: "past 3 months", days: 90 },
   ytd: { label: "since the latest annual list" },
   y1: { label: "since the 2025 list", year: "2025" },
   y3: { label: "since the 2023 list", year: "2023" },
@@ -101,21 +107,35 @@ function snapshotBaseline(days) {
 
 const snapshotCache = {};
 
+// Temporary estimate of a past net worth for a short window (1M/3M): interpolate
+// linearly between the latest annual list (archivedWorth, dated archivedAgeDays
+// ago) and the live value. Replaced by real snapshots as daily history builds up.
+function estimateBaseline(p, days) {
+  const D = state.archivedAgeDays;
+  if (!(p.archivedWorth > 0) || !(p.worth > 0) || !(D > 0)) return null;
+  const frac = Math.min(days / D, 1);
+  return p.worth + (p.archivedWorth - p.worth) * frac;
+}
+
+// Returns { base, est }: the baseline net worth for the period and whether it is
+// an estimate (true only for 1M/3M served from the annual-list fallback).
 function baselineWorth(p, period) {
   const def = PERIODS[period];
-  if (period === "day") return p.prevWorth;
-  if (period === "ytd") return p.archivedWorth > 0 ? p.archivedWorth : null;
-  if (def.year) { const w = (p.annual || {})[def.year]; return w > 0 ? w : null; }
+  if (period === "day") return { base: p.prevWorth, est: false };
+  if (period === "ytd") return { base: p.archivedWorth > 0 ? p.archivedWorth : null, est: false };
+  if (def.year) { const w = (p.annual || {})[def.year]; return { base: w > 0 ? w : null, est: false }; }
   if (!(period in snapshotCache)) snapshotCache[period] = snapshotBaseline(def.days);
   const map = snapshotCache[period];
-  return map ? map.get(normName(p.name)) ?? null : null;
+  const real = map ? map.get(normName(p.name)) ?? null : null;
+  if (real != null) return { base: real, est: false };
+  return { base: estimateBaseline(p, def.days), est: true };
 }
 
 function periodChange(p, period) {
-  const base = baselineWorth(p, period);
-  if (base == null || !(base > 0)) return { chg: null, pct: null };
+  const { base, est } = baselineWorth(p, period);
+  if (base == null || !(base > 0)) return { chg: null, pct: null, est: false };
   const chg = p.worth - base;
-  return { chg, pct: (chg / base) * 100 };
+  return { chg, pct: (chg / base) * 100, est };
 }
 
 /* ---------- filtering & sorting ---------- */
@@ -197,8 +217,10 @@ function buildRow(p) {
   const tdWorth = document.createElement("td"); tdWorth.className = "num name"; tdWorth.textContent = fmtMoney(p.worth);
   const tdDay = document.createElement("td"); tdDay.className = `num ${cls(p.dailyChange)}`; tdDay.textContent = fmtDelta(p.dailyChange);
   const tdDayP = document.createElement("td"); tdDayP.className = `num ${cls(p.dailyPct)}`; tdDayP.textContent = fmtPct(p.dailyPct);
-  const td90 = document.createElement("td"); td90.className = `num ${cls(p.chg90)}`; td90.textContent = fmtDelta(p.chg90);
-  const td90P = document.createElement("td"); td90P.className = `num ${cls(p.pct90)}`; td90P.textContent = fmtPct(p.pct90);
+  const est = p.est90 ? "*" : "";
+  const estTitle = p.est90 ? "Estimated from the latest annual Forbes list" : "";
+  const td90 = document.createElement("td"); td90.className = `num ${cls(p.chg90)}`; td90.textContent = fmtDelta(p.chg90) + est; td90.title = estTitle;
+  const td90P = document.createElement("td"); td90P.className = `num ${cls(p.pct90)}`; td90P.textContent = fmtPct(p.pct90) + est; td90P.title = estTitle;
   const td1y = document.createElement("td"); td1y.className = `num ${cls(p.chg1y)}`; td1y.textContent = fmtDelta(p.chg1y);
   const td1yP = document.createElement("td"); td1yP.className = `num ${cls(p.pct1y)}`; td1yP.textContent = fmtPct(p.pct1y);
 
@@ -456,8 +478,11 @@ function renderPerformance() {
     .filter((r) => r.chg != null);
 
   const note = $("periodNote");
-  if (!rows.length && def.days) {
-    note.textContent = `No local snapshot from ~${def.days} days ago yet. The server saves one per day it runs, so this fills in over time.`;
+  const nEst = rows.filter((r) => r.est).length;
+  if (!rows.length) {
+    note.textContent = `No data available ${def.label}.`;
+  } else if (nEst) {
+    note.textContent = `${rows.length.toLocaleString()} people · ${nEst.toLocaleString()} estimated from the latest annual list until daily history builds up`;
   } else {
     note.textContent = `${rows.length.toLocaleString()} people with data ${def.label}`;
   }
@@ -467,7 +492,7 @@ function renderPerformance() {
   const losers = rows.filter((r) => r.chg < 0).length;
   const byChg = rows.slice().sort((a, b) => b.chg - a.chg);
   // % movers restricted to fortunes >= $2B so tiny bases don't dominate
-  const byPct = rows.filter((r) => baselineWorth(r.p, period) >= 2000).sort((a, b) => b.pct - a.pct);
+  const byPct = rows.filter((r) => baselineWorth(r.p, period).base >= 2000).sort((a, b) => b.pct - a.pct);
 
   const median = (arr) => (arr.length ? arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null);
   const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
@@ -638,13 +663,14 @@ function openPersonModal(p) {
   now.innerHTML = `<div class="big">${fmtMoney(p.worth)}</div><div class="sub2">net worth now</div>`;
   head.appendChild(now);
 
-  const statDefs = [["day", "Today"], ["d30", "30D"], ["d90", "90D"], ["ytd", "YTD"], ["y1", "1Y"], ["y3", "3Y"], ["y5", "5Y"]];
+  const statDefs = [["day", "Today"], ["m1", "1M"], ["m3", "3M"], ["ytd", "YTD"], ["y1", "1Y"], ["y3", "3Y"], ["y5", "5Y"]];
   $("modalStats").innerHTML = statDefs.map(([key, label]) => {
-    const { chg, pct } = periodChange(p, key);
+    const { chg, pct, est } = periodChange(p, key);
+    const mark = est ? "*" : "";
     return `<div class="mstat">
       <div class="label">${label}</div>
-      <div class="val ${cls(chg)}">${fmtDelta(chg)}</div>
-      <div class="pct ${cls(pct)}">${fmtPct(pct)}</div>
+      <div class="val ${cls(chg)}">${fmtDelta(chg)}${mark}</div>
+      <div class="pct ${cls(pct)}">${fmtPct(pct)}${mark}</div>
     </div>`;
   }).join("");
 
@@ -797,5 +823,9 @@ function setScope(scope) {
   chartDefaults();
   populateFilters();
   applyFilters();
+  if (state.people.some((p) => p.est90)) {
+    $("tableNote").textContent =
+      "* 3M change is estimated from the latest annual Forbes list; it is replaced by measured values as ~90 days of daily history accumulate.";
+  }
   // dashboard renders lazily on first switch to the Analysis tab
 })();

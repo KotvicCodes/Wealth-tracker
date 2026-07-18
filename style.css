@@ -68,7 +68,7 @@ main { padding: 0 24px 40px; }
 .table-wrap { overflow-x: auto; }
 /* fixed layout: column widths come from the colgroup, so late-rendered long
    values (country names etc.) can never reflow and shift the whole table */
-table { border-collapse: collapse; width: 100%; min-width: 1150px; table-layout: fixed; }
+table { border-collapse: collapse; width: 100%; min-width: 1300px; table-layout: fixed; }
 thead th {
   position: sticky; top: 0; background: var(--page); z-index: 2;
   text-align: left; color: var(--muted); font-weight: 550; font-size: 12.5px;
@@ -99,6 +99,7 @@ td.name { color: var(--ink); font-weight: 550; }
 .neg { color: var(--down); }
 .spark { display: block; }
 .rowcount { color: var(--muted); padding: 12px 2px; font-size: 12.5px; }
+.tablenote { padding-top: 0; font-size: 12px; }
 #sentinel { height: 1px; }
 
 /* ---------- analysis ---------- */
