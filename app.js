@@ -763,7 +763,6 @@ function renderTrajectories() {
      country:  billionaires-per-adult in that country vs worldwide
      industry: billionaires-per-worker in that industry vs the world baseline
      gender:   share of billionaires of that gender vs a 50/50 split
-     age:      billionaires-per-adult in that age band vs worldwide
    Multipliers are combined as if independent, which they are not; the page
    says so. All reference figures are rough public estimates, in millions. */
 
@@ -800,17 +799,6 @@ const INDUSTRY_WORKERS_M = {
   "Gambling & Casinos": 12, "Diversified": null, // no meaningful workforce
 };
 
-// world adult age structure, approximate shares
-const AGE_BANDS = [
-  { key: "u30", label: "Under 30", min: 18, max: 29, share: 0.27 },
-  { key: "30s", label: "30s", min: 30, max: 39, share: 0.21 },
-  { key: "40s", label: "40s", min: 40, max: 49, share: 0.17 },
-  { key: "50s", label: "50s", min: 50, max: 59, share: 0.14 },
-  { key: "60s", label: "60s", min: 60, max: 69, share: 0.11 },
-  { key: "70s", label: "70s", min: 70, max: 79, share: 0.07 },
-  { key: "80p", label: "80+", min: 80, max: 200, share: 0.03 },
-];
-
 const fmtOneIn = (n) => {
   if (!isFinite(n) || n <= 0) return "–";
   if (n >= 1e9) return `1 in ${(n / 1e9).toFixed(1)} billion`;
@@ -828,7 +816,6 @@ function renderOdds() {
   const country = $("oddsCountry").value;
   const industry = $("oddsIndustry").value;
   const gender = $("oddsGender").value;
-  const ageKey = $("oddsAge").value;
 
   const factors = [];
   let noData = false;
@@ -859,12 +846,6 @@ function renderOdds() {
     const n = people.filter((p) => p.gender === gender).length;
     const mult = (n / total) / 0.5;
     factors.push({ label: gender === "M" ? "Man" : "Woman", detail: `${n.toLocaleString()} billionaires`, mult });
-  }
-  if (ageKey) {
-    const band = AGE_BANDS.find((b) => b.key === ageKey);
-    const n = people.filter((p) => p.age != null && p.age >= band.min && p.age <= band.max).length;
-    const mult = (n / total) / band.share;
-    factors.push({ label: band.label, detail: `${n.toLocaleString()} billionaires`, mult });
   }
 
   const rel = factors.reduce((s, f) => s * f.mult, 1);
@@ -910,12 +891,7 @@ function populateOdds() {
   };
   fillCounted($("oddsCountry"), "country");
   fillCounted($("oddsIndustry"), "industry");
-  AGE_BANDS.forEach((b) => {
-    const o = document.createElement("option");
-    o.value = b.key; o.textContent = b.label;
-    $("oddsAge").appendChild(o);
-  });
-  ["oddsCountry", "oddsIndustry", "oddsGender", "oddsAge"].forEach((id) =>
+  ["oddsCountry", "oddsIndustry", "oddsGender"].forEach((id) =>
     $(id).addEventListener("change", renderOdds));
 }
 

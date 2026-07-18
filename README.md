@@ -49,11 +49,11 @@ Routes: `/` serves the app, `/api/billionaires` is the live data proxy,
   industry, net-worth distribution, wealth-concentration curve, combined
   wealth of the current list over time, age distribution, average net worth
   by age, self-made and gender composition.
-- **Your odds**: pick a country, industry, gender and age band and get a
-  tongue-in-cheek estimate of the chance that a person with that profile is on
-  today's list, with a factor-by-factor multiplier breakdown vs the average
-  person. Uses rough embedded population and workforce figures and assumes the
-  factors are independent; the page carries a disclaimer saying exactly that.
+- **Your Odds**: pick a country, industry and gender and get a tongue-in-cheek
+  estimate of the chance that a person with that profile is on today's list,
+  with a factor-by-factor multiplier breakdown vs the average person. Uses
+  rough embedded population and workforce figures and assumes the factors are
+  independent; the page carries a disclaimer saying exactly that.
   The Performance period selection is remembered across visits (defaults to 1Y).
 
 ## Architecture
