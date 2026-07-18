@@ -1,2 +1,5 @@
-# runtime data snapshots written by server.py
+# runtime data snapshots + local annual-list caches
 data/
+__pycache__/
+*.pyc
+.vercel/
