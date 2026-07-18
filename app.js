@@ -13,11 +13,21 @@ const state = {
   charts: {},
   dashboardDirty: true,  // charts can't size in a hidden tab – render on show
   perfDirty: true,
-  period: "day",
+  oddsDirty: true,
+  period: loadPeriod(),
   history: {},           // local daily snapshots {date: {asOf, people: [[name, worth]]}}
 };
 
 const CHUNK = 80;
+
+// last selected performance period, kept across visits; defaults to 1 year
+function loadPeriod() {
+  try {
+    const p = localStorage.getItem("wt.period");
+    if (p && ["day", "m1", "m3", "ytd", "y1", "y3", "y5"].includes(p)) return p;
+  } catch (_) {}
+  return "y1";
+}
 
 /* ---------- formatting ---------- */
 const fmtMoney = (m) => {
@@ -747,6 +757,168 @@ function renderTrajectories() {
   });
 }
 
+/* ---------- "your odds" view ----------
+   Chance that a person with the selected profile is on today's Forbes list.
+   Each factor becomes a multiplier vs the world-average adult:
+     country:  billionaires-per-adult in that country vs worldwide
+     industry: billionaires-per-worker in that industry vs the world baseline
+     gender:   share of billionaires of that gender vs a 50/50 split
+     age:      billionaires-per-adult in that age band vs worldwide
+   Multipliers are combined as if independent, which they are not; the page
+   says so. All reference figures are rough public estimates, in millions. */
+
+const WORLD_ADULTS_M = 5700;
+
+// adults (18+) per country, millions, rough 2025 estimates
+const COUNTRY_ADULTS_M = {
+  "Afghanistan": 21, "Albania": 2.2, "Algeria": 30, "Argentina": 33, "Armenia": 2.2,
+  "Australia": 20.5, "Austria": 7.5, "Barbados": 0.22, "Belgium": 9.2, "Belize": 0.26,
+  "Brazil": 160, "Bulgaria": 5.5, "Canada": 32, "Chile": 15, "China": 1130,
+  "Colombia": 39, "Croatia": 3.3, "Cyprus": 0.95, "Czech Republic": 8.6, "Denmark": 4.7,
+  "Egypt": 68, "Estonia": 1.06, "Eswatini (Swaziland)": 0.7, "Finland": 4.5, "France": 52,
+  "Georgia": 3, "Germany": 69, "Greece": 8.7, "Guernsey": 0.05, "Hong Kong": 6.4,
+  "Hungary": 7.9, "Iceland": 0.29, "India": 1000, "Indonesia": 200, "Ireland": 3.9,
+  "Israel": 6.7, "Italy": 50, "Japan": 105, "Kazakhstan": 13, "Lebanon": 4,
+  "Liechtenstein": 0.031, "Luxembourg": 0.52, "Malaysia": 24, "Mexico": 92, "Monaco": 0.032,
+  "Morocco": 27, "Nepal": 20, "Netherlands": 14.3, "New Zealand": 4, "Nigeria": 110,
+  "Norway": 4.4, "Oman": 3.6, "Pakistan": 140, "Peru": 24, "Philippines": 75,
+  "Poland": 31, "Portugal": 8.7, "Qatar": 2.6, "Romania": 15.5, "Russia": 115,
+  "Saudi Arabia": 26, "Singapore": 4.9, "Slovakia": 4.4, "South Africa": 42,
+  "South Korea": 44, "Spain": 39, "St. Kitts and Nevis": 0.04, "Sweden": 8.4,
+  "Switzerland": 7.3, "Taiwan": 20, "Tanzania": 32, "Thailand": 57, "Turkey": 63,
+  "Ukraine": 30, "United Arab Emirates": 8.5, "United Kingdom": 54, "United States": 262,
+  "Uruguay": 2.7, "Venezuela": 21, "Vietnam": 74, "Zimbabwe": 8.5,
+};
+
+// global workforce per Forbes industry, millions, rough estimates
+const INDUSTRY_WORKERS_M = {
+  "Technology": 70, "Finance & Investments": 65, "Fashion & Retail": 420,
+  "Manufacturing": 430, "Food & Beverage": 220, "Healthcare": 220,
+  "Real Estate": 55, "Energy": 55, "Media & Entertainment": 45,
+  "Metals & Mining": 35, "Automotive": 60, "Logistics": 140, "Telecom": 25,
+  "Service": 500, "Construction & Engineering": 280, "Sports": 15,
+  "Gambling & Casinos": 12, "Diversified": null, // no meaningful workforce
+};
+
+// world adult age structure, approximate shares
+const AGE_BANDS = [
+  { key: "u30", label: "Under 30", min: 18, max: 29, share: 0.27 },
+  { key: "30s", label: "30s", min: 30, max: 39, share: 0.21 },
+  { key: "40s", label: "40s", min: 40, max: 49, share: 0.17 },
+  { key: "50s", label: "50s", min: 50, max: 59, share: 0.14 },
+  { key: "60s", label: "60s", min: 60, max: 69, share: 0.11 },
+  { key: "70s", label: "70s", min: 70, max: 79, share: 0.07 },
+  { key: "80p", label: "80+", min: 80, max: 200, share: 0.03 },
+];
+
+const fmtOneIn = (n) => {
+  if (!isFinite(n) || n <= 0) return "–";
+  if (n >= 1e9) return `1 in ${(n / 1e9).toFixed(1)} billion`;
+  if (n >= 1e6) return `1 in ${(n / 1e6).toFixed(1)} million`;
+  return `1 in ${Math.round(n).toLocaleString()}`;
+};
+
+const fmtTimes = (x) => (x >= 10 ? Math.round(x).toLocaleString() : x >= 1 ? x.toFixed(1) : x.toFixed(2));
+
+function renderOdds() {
+  const people = state.people;
+  const total = people.length;
+  const baseline = total / (WORLD_ADULTS_M * 1e6); // P(billionaire) for the average adult
+
+  const country = $("oddsCountry").value;
+  const industry = $("oddsIndustry").value;
+  const gender = $("oddsGender").value;
+  const ageKey = $("oddsAge").value;
+
+  const factors = [];
+  let noData = false;
+
+  if (country) {
+    const n = people.filter((p) => p.country === country).length;
+    const adults = COUNTRY_ADULTS_M[country];
+    if (adults) {
+      const mult = (n / (adults * 1e6)) / baseline;
+      factors.push({ label: country, detail: `${n.toLocaleString()} billionaires`, mult });
+    } else {
+      factors.push({ label: country, detail: `${n.toLocaleString()} billionaires · no population data`, mult: 1 });
+      noData = true;
+    }
+  }
+  if (industry) {
+    const n = people.filter((p) => p.industry === industry).length;
+    const workers = INDUSTRY_WORKERS_M[industry];
+    if (workers) {
+      const mult = (n / (workers * 1e6)) / baseline;
+      factors.push({ label: industry, detail: `${n.toLocaleString()} billionaires`, mult });
+    } else {
+      factors.push({ label: industry, detail: `${n.toLocaleString()} billionaires · no workforce data`, mult: 1 });
+      noData = true;
+    }
+  }
+  if (gender) {
+    const n = people.filter((p) => p.gender === gender).length;
+    const mult = (n / total) / 0.5;
+    factors.push({ label: gender === "M" ? "Man" : "Woman", detail: `${n.toLocaleString()} billionaires`, mult });
+  }
+  if (ageKey) {
+    const band = AGE_BANDS.find((b) => b.key === ageKey);
+    const n = people.filter((p) => p.age != null && p.age >= band.min && p.age <= band.max).length;
+    const mult = (n / total) / band.share;
+    factors.push({ label: band.label, detail: `${n.toLocaleString()} billionaires`, mult });
+  }
+
+  const rel = factors.reduce((s, f) => s * f.mult, 1);
+  const odds = baseline * rel;
+  const oneIn = 1 / odds;
+  const avgOneIn = 1 / baseline;
+
+  const factorRows = factors.map((f) => {
+    // log-scaled bar: ×1 sits at the center, ×100 fills right, ×0.01 empties left
+    const w = Math.max(3, Math.min(100, 50 + 25 * Math.log10(f.mult || 1e-4)));
+    return `<div class="ofactor">
+      <div class="ofactor-head">
+        <span class="ofactor-label">${f.label}</span>
+        <span class="ofactor-mult ${f.mult >= 1 ? "pos" : "neg"}">×${fmtTimes(f.mult)}</span>
+      </div>
+      <div class="ofactor-bar"><span style="width:${w}%"></span></div>
+      <div class="ofactor-detail">${f.detail}</div>
+    </div>`;
+  }).join("");
+
+  $("oddsResult").innerHTML = `
+    <div class="odds-big">${fmtOneIn(oneIn)}</div>
+    <div class="odds-sub">chance that a person with this profile is on today's list of
+      ${total.toLocaleString()} billionaires</div>
+    <div class="odds-compare ${rel >= 1 ? "pos" : "neg"}">
+      ${factors.length
+        ? `×${fmtTimes(rel)} ${rel >= 1 ? "more" : "as"} likely ${rel >= 1 ? "than" : "as"} the average person (${fmtOneIn(avgOneIn)})`
+        : `this is the world-average adult's odds`}
+    </div>
+    ${factorRows ? `<div class="odds-factors"><div class="odds-factors-title">Factor breakdown</div>${factorRows}</div>` : ""}
+    ${noData ? `<div class="odds-warn">Factors without reference data count as ×1.</div>` : ""}`;
+}
+
+function populateOdds() {
+  const fillCounted = (sel, key) => {
+    const counts = new Map();
+    state.people.forEach((p) => { const k = p[key]; if (k) counts.set(k, (counts.get(k) || 0) + 1); });
+    [...counts.keys()].sort().forEach((v) => {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v;
+      sel.appendChild(o);
+    });
+  };
+  fillCounted($("oddsCountry"), "country");
+  fillCounted($("oddsIndustry"), "industry");
+  AGE_BANDS.forEach((b) => {
+    const o = document.createElement("option");
+    o.value = b.key; o.textContent = b.label;
+    $("oddsAge").appendChild(o);
+  });
+  ["oddsCountry", "oddsIndustry", "oddsGender", "oddsAge"].forEach((id) =>
+    $(id).addEventListener("change", renderOdds));
+}
+
 /* ---------- person detail modal ---------- */
 function openPersonModal(p) {
   const overlay = $("personModal");
@@ -841,18 +1013,25 @@ function bindEvents() {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
       document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + tab.dataset.view));
-      // search/dropdown filters only affect the table; hide them on the analysis view
-      const isRankings = tab.dataset.view === "rankings";
+      // search/dropdown filters only affect the table; hide them elsewhere.
+      // the odds view ignores scope too, so it hides the whole filter bar.
+      const view = tab.dataset.view;
+      const isRankings = view === "rankings";
       $("search").style.display = isRankings ? "" : "none";
       $("countryFilter").style.display = isRankings ? "" : "none";
       $("industryFilter").style.display = isRankings ? "" : "none";
-      if (tab.dataset.view === "analysis" && state.dashboardDirty) {
+      $("filterbar").style.display = view === "odds" ? "none" : "";
+      if (view === "analysis" && state.dashboardDirty) {
         renderDashboard();
         state.dashboardDirty = false;
       }
-      if (tab.dataset.view === "performance" && state.perfDirty) {
+      if (view === "performance" && state.perfDirty) {
         renderPerformance();
         state.perfDirty = false;
+      }
+      if (view === "odds" && state.oddsDirty) {
+        renderOdds();
+        state.oddsDirty = false;
       }
     });
   });
@@ -887,8 +1066,10 @@ function bindEvents() {
   }, { rootMargin: "600px" }).observe($("sentinel"));
 
   document.querySelectorAll("#periodbar .chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.period === state.period);
     chip.addEventListener("click", () => {
       state.period = chip.dataset.period;
+      try { localStorage.setItem("wt.period", state.period); } catch (_) {}
       document.querySelectorAll("#periodbar .chip").forEach((c) => c.classList.toggle("active", c === chip));
       renderPerformance();
     });
@@ -932,6 +1113,7 @@ function setScope(scope) {
   }
   chartDefaults();
   populateFilters();
+  populateOdds();
   applyFilters();
   if (state.people.some((p) => p.est90)) {
     $("tableNote").textContent =

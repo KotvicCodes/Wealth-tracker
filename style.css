@@ -63,12 +63,12 @@ body {
   display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
   padding: 14px 24px;
 }
-.filterbar input[type="search"], .filterbar select {
+.filterbar input[type="search"], .filterbar select, .odds-form select {
   background: var(--surface); color: var(--ink); border: 1px solid var(--border);
   border-radius: 8px; padding: 7px 10px; font: inherit; min-width: 150px;
 }
 .filterbar input[type="search"] { flex: 1 1 220px; max-width: 340px; }
-.filterbar select {
+.filterbar select, .odds-form select {
   appearance: none; -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23898781' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 12px center;
@@ -213,6 +213,38 @@ tbody tr { cursor: pointer; }
 .mstat .pct { font-size: 11.5px; }
 .modal-chart { height: 240px; }
 .modal-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+
+/* ---------- "your odds" view ---------- */
+.odds-layout {
+  display: grid; grid-template-columns: minmax(260px, 360px) minmax(300px, 1fr);
+  gap: 14px; align-items: start; margin-top: 6px;
+}
+@media (max-width: 720px) { .odds-layout { grid-template-columns: 1fr; } }
+.odds-field {
+  display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;
+  color: var(--muted); font-size: 12.5px;
+}
+.odds-field select { width: 100%; }
+.odds-note { color: var(--muted); font-size: 12px; margin: 14px 0 0; line-height: 1.5; }
+.odds-big { font-size: 34px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.odds-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.odds-compare { font-size: 15px; font-weight: 600; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.odds-factors { margin-top: 18px; }
+.odds-factors-title {
+  color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.05em; font-weight: 550; margin-bottom: 10px;
+}
+.ofactor { margin-bottom: 12px; }
+.ofactor-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ofactor-label { font-weight: 550; }
+.ofactor-mult { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ofactor-bar {
+  height: 6px; border-radius: 3px; background: var(--surface-2);
+  margin: 5px 0 3px; overflow: hidden;
+}
+.ofactor-bar span { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
+.ofactor-detail { color: var(--muted); font-size: 11.5px; }
+.odds-warn { color: var(--muted); font-size: 12px; margin-top: 12px; }
 
 .error {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
