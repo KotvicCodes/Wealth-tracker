@@ -759,12 +759,15 @@ function renderTrajectories() {
 
 /* ---------- "your odds" view ----------
    Chance that a person with the selected profile is on today's Forbes list.
-   Each factor becomes a multiplier vs the world-average adult:
-     country:  billionaires-per-adult in that country vs worldwide
-     industry: billionaires-per-worker in that industry vs the world baseline
+   Each factor becomes a multiplier vs its own reference group:
+     country:  billionaires-per-adult in that country vs the average adult
+     industry: billionaires-per-worker in that industry vs the average worker
      gender:   share of billionaires of that gender vs a 50/50 split
-   Multipliers are combined as if independent, which they are not; the page
-   says so. All reference figures are rough public estimates, in millions. */
+   Industry compares against workers, not adults: there are far fewer workers
+   than adults, so measuring an industry against the per-adult baseline made
+   almost every sector look favorable. Multipliers are combined as if
+   independent, which they are not; the page says so. All reference figures are
+   rough public estimates, in millions. */
 
 const WORLD_ADULTS_M = 5700;
 
@@ -813,6 +816,20 @@ function renderOdds() {
   const total = people.length;
   const baseline = total / (WORLD_ADULTS_M * 1e6); // P(billionaire) for the average adult
 
+  // Per-worker reference for the industry factor: billionaires per worker across
+  // all workforce-backed industries. The workforce-weighted average industry
+  // multiplier is 1 by construction, so labor-heavy sectors land below x1 and
+  // capital-light ones above, instead of nearly everything reading favorable.
+  const industryBaseline = (() => {
+    let bills = 0, workers = 0;
+    for (const [ind, w] of Object.entries(INDUSTRY_WORKERS_M)) {
+      if (!w) continue;
+      workers += w * 1e6;
+      bills += people.filter((p) => p.industry === ind).length;
+    }
+    return workers ? bills / workers : baseline;
+  })();
+
   const country = $("oddsCountry").value;
   const industry = $("oddsIndustry").value;
   const gender = $("oddsGender").value;
@@ -835,7 +852,7 @@ function renderOdds() {
     const n = people.filter((p) => p.industry === industry).length;
     const workers = INDUSTRY_WORKERS_M[industry];
     if (workers) {
-      const mult = (n / (workers * 1e6)) / baseline;
+      const mult = (n / (workers * 1e6)) / industryBaseline;
       factors.push({ label: industry, detail: `${n.toLocaleString()} billionaires`, mult });
     } else {
       factors.push({ label: industry, detail: `${n.toLocaleString()} billionaires · no workforce data`, mult: 1 });
