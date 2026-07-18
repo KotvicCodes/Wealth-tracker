@@ -29,6 +29,10 @@ ANNUAL_URL = (
     "?fields=personName,finalWorth"
 )
 ANNUAL_YEARS = [2021, 2022, 2023, 2024, 2025]  # the current year comes from archivedWorth
+# Approximate snapshot date of the latest annual Forbes billionaires list, which
+# is what archivedWorth holds. Used to date that value so the client can build
+# temporary short-window (1M/3M) estimates. Update once a year when the list refreshes.
+ARCHIVED_LIST_DATE = "2026-03-07"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -162,6 +166,7 @@ def _fetch_billionaires():
         "asOf": int(time.time() * 1000),
         "count": len(trimmed),
         "annualYears": ANNUAL_YEARS,
+        "archivedAsOf": ARCHIVED_LIST_DATE,
         "people": trimmed,
     }
 
