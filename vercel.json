@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "api/*.py": {
+      "maxDuration": 60,
+      "includeFiles": "api/annual.json"
+    }
+  },
+  "crons": [
+    { "path": "/api/cron", "schedule": "0 22 * * *" }
+  ]
+}
