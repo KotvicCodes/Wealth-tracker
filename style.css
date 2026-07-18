@@ -68,6 +68,12 @@ body {
   border-radius: 8px; padding: 7px 10px; font: inherit; min-width: 150px;
 }
 .filterbar input[type="search"] { flex: 1 1 220px; max-width: 340px; }
+.filterbar select {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23898781' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+  padding-right: 32px;
+}
 .scope-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .scope-toggle button {
   background: var(--surface); color: var(--muted); border: none; font: inherit;
@@ -149,7 +155,7 @@ td.name { color: var(--ink); font-weight: 550; }
 .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
 .card .units { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
 .chartbox { position: relative; height: 260px; }
-.chartbox.tall { height: 340px; }
+.chartbox.tall { height: 400px; }
 
 /* composition stacked bars (pure CSS) */
 .comp { margin-bottom: 16px; }

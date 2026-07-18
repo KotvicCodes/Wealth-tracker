@@ -299,7 +299,8 @@ const barOpts = (horizontal, unit) => ({
     x: { grid: { display: !horizontal ? false : true, color: C.grid }, border: { display: false },
          ticks: { callback: (v) => (horizontal ? compact(v) : undefined) } },
     y: { grid: { display: horizontal ? false : true, color: C.grid }, border: { display: false },
-         ticks: horizontal ? {} : { callback: (v) => compact(v) } },
+         // category labels must never be skipped: a bar without a name is unreadable
+         ticks: horizontal ? { autoSkip: false } : { callback: (v) => compact(v) } },
   },
   plugins: {
     tooltip: {
