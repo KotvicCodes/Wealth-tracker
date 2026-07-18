@@ -3,11 +3,6 @@
 A simple webapp that tracks returns and does data analysis of the world's richest
 people (~3,400 billionaires), using **Forbes' public real-time billionaires API**.
 
-> Bloomberg's Billionaires Index was the original target, but Bloomberg blocks all
-> non-browser requests (HTTP 403), so live data from it isn't possible. Forbes
-> exposes the equivalent data (updated continuously during trading hours) via an
-> open JSON endpoint, which this app uses instead.
-
 ## Run
 
 ```sh
@@ -19,18 +14,20 @@ Then open http://localhost:8000. No dependencies: Python 3 stdlib only
 
 ## What it does
 
-- **Rankings**: all ~3,400 billionaires with net worth, daily, YTD and 1-year
-  returns ($ and %), intraday sparkline, search, country/industry filters,
-  column sorting, and a Top 500 scope toggle. Click any row for a person
-  detail view with returns across every period and a 2021-to-now wealth chart.
+- **Rankings**: all ~3,400 billionaires with net worth, daily, 3-month and
+  1-year returns ($ and %), a 5-year trend sparkline, search, country/industry
+  filters, column sorting, and a Top 500 scope toggle. Click any row for a
+  person detail view with returns across every period and a 2021-to-now
+  wealth chart.
 - **Performance**: returns over a selectable period (Day, 30D, 90D, YTD, 1Y,
-  3Y, 5Y) with aggregate change, gainer/loser counts, best and worst
-  performers, top movers by $ and by %, a return distribution histogram, and
-  wealth trajectories of the current top 8.
+  3Y, 5Y) with aggregate, average and median change, gainer/loser counts,
+  best and worst performers, top movers by $ and by %, average return by
+  industry and country, a return distribution histogram, and wealth
+  trajectories of the current top 8.
 - **Analysis**: stat tiles (combined/average/median wealth, today's aggregate
-  move), top daily gainers/losers, wealth by country and industry, net-worth
-  distribution, wealth-concentration curve, age distribution, self-made and
-  gender composition.
+  move), top daily gainers/losers, billionaire counts by country and industry,
+  net-worth distribution, wealth-concentration curve, age distribution,
+  self-made and gender composition.
 
 ## Data notes
 
