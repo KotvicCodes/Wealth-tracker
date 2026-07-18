@@ -37,7 +37,10 @@ Then open http://localhost:8000. No dependencies: Python 3 stdlib only
   (2021 to 2025), fetched once and cached in `data/annual_<year>.json`. People
   are matched across years by normalized name, so brand-new billionaires show
   no data for years before they appeared.
-- 30D and 90D returns use this app's own daily snapshots: each day the server
+- 1M and 3M returns use this app's own daily snapshots: each day the server
   fetches fresh data it stores a compact `{name, worth}` entry in
   `data/history.json`, so short-term return history accumulates the more you
-  run it.
+  run it. Until ~90 days of snapshots exist, these windows fall back to an
+  estimate interpolated between the latest annual list (`archivedWorth`, dated
+  by `ARCHIVED_LIST_DATE` in `server.py`) and the live value; estimated numbers
+  are marked with `*` in the UI.
