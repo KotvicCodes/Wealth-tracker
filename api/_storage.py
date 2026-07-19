@@ -15,7 +15,7 @@ from datetime import date, datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
-HISTORY_FILE = os.path.join(REPO_ROOT, "data", "history.json")
+DATA_DIR = os.path.join(REPO_ROOT, "data")
 BLOB_NAME = "history.json"
 KEEP_DAYS = 130  # enough to cover the 90-day (3M) window with margin
 
@@ -27,21 +27,21 @@ def _using_blob():
 # ---------- Vercel Blob backend (official vercel_blob SDK) ----------
 # Imported lazily so local dev never needs the dependency. The SDK reads the
 # BLOB_READ_WRITE_TOKEN env var itself.
-def _blob_read():
+def _blob_read(name):
     import vercel_blob
-    res = vercel_blob.list({"prefix": BLOB_NAME, "limit": "1"})
+    res = vercel_blob.list({"prefix": name, "limit": "1"})
     for b in res.get("blobs", []):
-        if b.get("pathname") == BLOB_NAME:
+        if b.get("pathname") == name:
             url = b.get("downloadUrl") or b.get("url")
             with urllib.request.urlopen(url, timeout=15) as resp:
                 return json.loads(resp.read())
     return {}
 
 
-def _blob_write(history):
+def _blob_write(name, obj):
     import vercel_blob
-    body = json.dumps(history, separators=(",", ":")).encode()
-    vercel_blob.put(BLOB_NAME, body, {
+    body = json.dumps(obj, separators=(",", ":")).encode()
+    vercel_blob.put(name, body, {
         "addRandomSuffix": "false",
         "allowOverwrite": "true",
         "contentType": "application/json",
@@ -49,29 +49,44 @@ def _blob_write(history):
 
 
 # ---------- filesystem backend ----------
-def _fs_read():
+def _fs_read(name):
     try:
-        with open(HISTORY_FILE) as f:
+        with open(os.path.join(DATA_DIR, name)) as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
 
 
-def _fs_write(history):
-    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-    tmp = HISTORY_FILE + ".tmp"
+def _fs_write(name, obj):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = os.path.join(DATA_DIR, name)
+    tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(history, f)
-    os.replace(tmp, HISTORY_FILE)
+        json.dump(obj, f)
+    os.replace(tmp, path)
 
 
-# ---------- public API ----------
+# ---------- generic named-JSON API (history, reference data, ...) ----------
+def read_json(name):
+    """Best-effort read of a stored JSON document; {} when missing/broken."""
+    try:
+        return _blob_read(name) if _using_blob() else _fs_read(name)
+    except Exception as e:
+        print(f"warning: could not read {name}: {e}")
+        return {}
+
+
+def write_json(name, obj):
+    (_blob_write if _using_blob() else _fs_write)(name, obj)
+
+
+# ---------- history-specific API ----------
 def _read():
-    return _blob_read() if _using_blob() else _fs_read()
+    return _blob_read(BLOB_NAME) if _using_blob() else _fs_read(BLOB_NAME)
 
 
 def _write(history):
-    (_blob_write if _using_blob() else _fs_write)(history)
+    (_blob_write if _using_blob() else _fs_write)(BLOB_NAME, history)
 
 
 def _prune(history):

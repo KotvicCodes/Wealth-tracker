@@ -20,6 +20,7 @@ PORT = int(os.environ.get("PORT", "8000"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE_DIR, "api"))
 import _forbes  # noqa: E402
+import _reference  # noqa: E402
 import _storage  # noqa: E402
 
 
@@ -32,11 +33,14 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 data = _forbes.get_billionaires_dict()
                 _storage.append_today(_forbes.snapshot_entry(data))  # daily snapshot
+                _reference.refresh_if_stale()  # local stand-in for the weekly cron
                 self._send_json(200, _forbes.get_billionaires_json(), compress=True)
             except Exception as e:  # network/parse failure, tell the client
                 self._send_json(502, json.dumps({"error": str(e)}).encode())
         elif self.path == "/api/history":
             self._send_json(200, _storage.read_history_bytes(), compress=True)
+        elif self.path == "/api/reference":
+            self._send_json(200, _reference.read_reference_bytes(), compress=True)
         else:
             super().do_GET()
 

@@ -29,7 +29,8 @@ the whole thing fits Vercel's free (Hobby) tier.
    `/api/cron` once (or wait for the first cron run).
 
 Routes: `/` serves the app, `/api/billionaires` is the live data proxy,
-`/api/history` returns the accumulated snapshots, `/api/cron` writes today's.
+`/api/history` returns the accumulated snapshots, `/api/cron` writes today's,
+`/api/reference` returns the weekly-refreshed population figures.
 
 ## What it does
 
@@ -76,3 +77,20 @@ Routes: `/` serves the app, `/api/billionaires` is the live data proxy,
   fall back to an estimate interpolated between the latest annual list
   (`archivedWorth`, dated by `ARCHIVED_LIST_DATE` in `api/_forbes.py`) and the
   live value; estimated numbers are marked with `*` in the UI.
+
+## Zero-maintenance design
+
+The site is meant to keep itself correct without anyone touching it:
+
+- The annual-list years advance automatically each April
+  (`_latest_list_year()` in `api/_forbes.py`): the newest past list is fetched
+  once, cached to storage as `annual_extra.json`, and the frontend re-anchors
+  its 1Y/3Y/5Y periods and year axes to whatever years the API serves.
+- Once a week the daily cron refreshes working-age population figures
+  (per country and worldwide) from the World Bank API into `reference.json`
+  (`api/_reference.py`); the Your Odds view prefers them over its bundled
+  fallback estimates. Industry workforce figures stay static on purpose: the
+  odds math only uses their ratios (uniform growth cancels out) and no public
+  API reports workforce by Forbes' industry categories.
+- 1M/3M returns upgrade themselves from estimates to measured values as daily
+  snapshots accumulate.

@@ -16,6 +16,8 @@ const state = {
   oddsDirty: true,
   period: loadPeriod(),
   history: {},           // local daily snapshots {date: {asOf, people: [[name, worth]]}}
+  reference: {},         // weekly-refreshed population figures for the odds view
+  annualYears: [],       // served annual-list years, e.g. ["2021", ..., "2025"]
 };
 
 const CHUNK = 80;
@@ -45,9 +47,10 @@ const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 
 /* ---------- data ---------- */
 async function loadData() {
-  const [resp, histResp] = await Promise.all([
+  const [resp, histResp, refResp] = await Promise.all([
     fetch("/api/billionaires"),
     fetch("/api/history").catch(() => null),
+    fetch("/api/reference").catch(() => null),
   ]);
   if (!resp.ok) {
     let msg = `Server error (${resp.status})`;
@@ -58,13 +61,27 @@ async function loadData() {
   if (histResp && histResp.ok) {
     try { state.history = await histResp.json(); } catch (_) { state.history = {}; }
   }
+  // weekly-refreshed population figures; {} until the first cron refresh
+  if (refResp && refResp.ok) {
+    try { state.reference = await refResp.json(); } catch (_) { state.reference = {}; }
+  }
+  // the served annual-list years advance on their own each April; the yearly
+  // periods (1Y/3Y/5Y) anchor to the newest one instead of hardcoded years
+  state.annualYears = (data.annualYears || []).map(String);
+  if (!state.annualYears.length) state.annualYears = ["2021", "2022", "2023", "2024", "2025"];
+  const latest = +state.annualYears[state.annualYears.length - 1];
+  [["y1", latest], ["y3", latest - 2], ["y5", latest - 4]].forEach(([key, y]) => {
+    PERIODS[key].year = String(y);
+    PERIODS[key].label = `since the ${y} list`;
+  });
+
   const now = Date.now();
   state.people = data.people.map((p) => {
     const dailyChange = p.prevWorth != null ? p.worth - p.prevWorth : null;
     const dailyPct = p.prevWorth ? (dailyChange / p.prevWorth) * 100 : null;
     const ytdChange = p.archivedWorth != null && p.archivedWorth > 0 ? p.worth - p.archivedWorth : null;
     const ytdPct = p.archivedWorth > 0 ? (ytdChange / p.archivedWorth) * 100 : null;
-    const w1y = (p.annual || {})["2025"];
+    const w1y = (p.annual || {})[PERIODS.y1.year];
     const chg1y = w1y > 0 ? p.worth - w1y : null;
     const pct1y = w1y > 0 ? (chg1y / w1y) * 100 : null;
     const age = p.birthDate ? Math.floor((now - p.birthDate) / (365.25 * 24 * 3600e3)) : null;
@@ -95,6 +112,8 @@ const PERIODS = {
   m1: { label: "past month", days: 30 },
   m3: { label: "past 3 months", days: 90 },
   ytd: { label: "since the latest annual list" },
+  // y1/y3/y5 years and labels are re-anchored in loadData to the newest served
+  // annual list, so they stay correct when a new list appears each April
   y1: { label: "since the 2025 list", year: "2025" },
   y3: { label: "since the 2023 list", year: "2023" },
   y5: { label: "since the 2021 list", year: "2021" },
@@ -251,9 +270,9 @@ function avatarFallback(name) {
   return el;
 }
 
-// annual list values 2021-2025 + latest list + live value, nulls skipped
+// past annual list values + latest list + live value, nulls skipped
 function yearlySeries(p) {
-  const vals = ["2021", "2022", "2023", "2024", "2025"].map((y) => (p.annual || {})[y]);
+  const vals = state.annualYears.map((y) => (p.annual || {})[y]);
   vals.push(p.archivedWorth, p.worth);
   return vals.filter((v) => v > 0);
 }
@@ -495,7 +514,7 @@ function renderDashboard() {
   });
 
   // combined wealth of the current list members across the annual lists
-  const years = ["2021", "2022", "2023", "2024", "2025"];
+  const years = state.annualYears;
   const timeLabels = [...years, "Latest list", "Now"];
   const timeSums = [];
   const timeCounts = [];
@@ -724,7 +743,7 @@ const TRAJ_COLORS = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e6
 
 function renderTrajectories() {
   const top = scoped().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0)).slice(0, 8);
-  const years = ["2021", "2022", "2023", "2024", "2025"];
+  const years = state.annualYears;
   const labels = [...years, "Latest list", "Now"];
   const datasets = top.map((p, i) => ({
     label: p.name,
@@ -767,11 +786,18 @@ function renderTrajectories() {
    than adults, so measuring an industry against the per-adult baseline made
    almost every sector look favorable. Multipliers are combined as if
    independent, which they are not; the page says so. All reference figures are
-   rough public estimates, in millions. */
+   rough public estimates, in millions.
 
-const WORLD_ADULTS_M = 5700;
+   Population figures self-update: /api/reference serves World Bank working-age
+   populations refreshed weekly by the cron, and they override the fallback
+   tables below. Workforce figures stay static because only their ratios enter
+   the math (a uniform growth factor cancels out) and no public API reports
+   workforce by Forbes' industry categories. */
 
-// adults (18+) per country, millions, rough 2025 estimates
+const WORLD_ADULTS_M = 5700; // fallback until /api/reference has data
+
+// adults per country, millions; fallbacks for countries the weekly
+// World Bank refresh cannot cover (e.g. Taiwan, Guernsey) or before it runs
 const COUNTRY_ADULTS_M = {
   "Afghanistan": 21, "Albania": 2.2, "Algeria": 30, "Argentina": 33, "Armenia": 2.2,
   "Australia": 20.5, "Austria": 7.5, "Barbados": 0.22, "Belgium": 9.2, "Belize": 0.26,
@@ -814,7 +840,11 @@ const fmtTimes = (x) => (x >= 10 ? Math.round(x).toLocaleString() : x >= 1 ? x.t
 function renderOdds() {
   const people = state.people;
   const total = people.length;
-  const baseline = total / (WORLD_ADULTS_M * 1e6); // P(billionaire) for the average adult
+  // live figures from the weekly World Bank refresh win over the bundled estimates
+  const ref = state.reference || {};
+  const worldAdultsM = ref.worldAdultsM > 0 ? ref.worldAdultsM : WORLD_ADULTS_M;
+  const adultsOf = (c) => (ref.countryAdultsM || {})[c] || COUNTRY_ADULTS_M[c];
+  const baseline = total / (worldAdultsM * 1e6); // P(billionaire) for the average adult
 
   // Per-worker reference for the industry factor: billionaires per worker across
   // all workforce-backed industries. The workforce-weighted average industry
@@ -839,7 +869,7 @@ function renderOdds() {
 
   if (country) {
     const n = people.filter((p) => p.country === country).length;
-    const adults = COUNTRY_ADULTS_M[country];
+    const adults = adultsOf(country);
     if (adults) {
       const mult = (n / (adults * 1e6)) / baseline;
       factors.push({ label: country, detail: `${n.toLocaleString()} billionaires`, mult });
@@ -911,7 +941,7 @@ function renderOdds() {
     </div>
     <div class="odds-stats">
       <div class="odds-stat"><div class="label">Billionaires today</div><div class="value">${total.toLocaleString()}</div></div>
-      <div class="odds-stat"><div class="label">Adults worldwide</div><div class="value">~${(WORLD_ADULTS_M / 1000).toFixed(1)}B</div></div>
+      <div class="odds-stat"><div class="label">Adults worldwide</div><div class="value">~${(worldAdultsM / 1000).toFixed(1)}B</div></div>
       <div class="odds-stat"><div class="label">World average</div><div class="value">${fmtOneIn(avgOneIn)}</div></div>
     </div>
     ${factorRows
@@ -932,7 +962,31 @@ function applyOddsPreset(p) {
   $("oddsCountry").value = p.c;
   $("oddsIndustry").value = p.i;
   $("oddsGender").value = p.g;
+  saveOddsProfile();
   renderOdds();
+}
+
+/* profile selections survive reloads, like the performance period */
+function saveOddsProfile() {
+  try {
+    localStorage.setItem("wt.odds", JSON.stringify({
+      c: $("oddsCountry").value, i: $("oddsIndustry").value, g: $("oddsGender").value,
+    }));
+  } catch (_) {}
+}
+
+function restoreOddsProfile() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem("wt.odds")); } catch (_) {}
+  if (!saved) return;
+  // only apply values that still exist as options (countries can drop off the list)
+  const restore = (id, v) => {
+    const sel = $(id);
+    if (v && [...sel.options].some((o) => o.value === v)) sel.value = v;
+  };
+  restore("oddsCountry", saved.c);
+  restore("oddsIndustry", saved.i);
+  restore("oddsGender", saved.g);
 }
 
 function populateOdds() {
@@ -947,8 +1001,9 @@ function populateOdds() {
   };
   fillCounted($("oddsCountry"), "country");
   fillCounted($("oddsIndustry"), "industry");
+  restoreOddsProfile();
   ["oddsCountry", "oddsIndustry", "oddsGender"].forEach((id) =>
-    $(id).addEventListener("change", renderOdds));
+    $(id).addEventListener("change", () => { saveOddsProfile(); renderOdds(); }));
   // preset chips are re-rendered with every result, so delegate from the container
   $("oddsResult").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-preset]");
@@ -993,7 +1048,7 @@ function openPersonModal(p) {
     </div>`;
   }).join("");
 
-  const years = ["2021", "2022", "2023", "2024", "2025"];
+  const years = state.annualYears;
   makeChart("chPerson", {
     type: "line",
     data: {

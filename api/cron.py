@@ -2,7 +2,8 @@
 
 Triggered daily by Vercel Cron (see vercel.json). Fetches the current data and
 stores one snapshot for today so 1M/3M returns accumulate real values over time.
-Also callable manually to seed the first snapshot.
+Once a week it also refreshes the population reference data for the Your Odds
+view. Also callable manually to seed the first snapshot.
 """
 import json
 import os
@@ -11,6 +12,7 @@ from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _forbes  # noqa: E402
+import _reference  # noqa: E402
 import _storage  # noqa: E402
 
 
@@ -24,7 +26,9 @@ class handler(BaseHTTPRequestHandler):
         try:
             data = _forbes.get_billionaires_dict()
             saved = _storage.append_today(_forbes.snapshot_entry(data))
-            self._json(200, {"ok": True, "saved": saved, "count": data["count"]})
+            reference = _reference.refresh_if_stale()  # weekly, no-op otherwise
+            self._json(200, {"ok": True, "saved": saved, "count": data["count"],
+                             "reference": reference})
         except Exception as e:
             self._json(500, {"ok": False, "error": str(e)})
 

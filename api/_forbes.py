@@ -27,11 +27,23 @@ ANNUAL_URL = (
     "https://www.forbes.com/forbesapi/person/billionaires/{year}/position/true.json"
     "?fields=personName,finalWorth"
 )
-ANNUAL_YEARS = [2021, 2022, 2023, 2024, 2025]  # the current year comes from archivedWorth
-# Approximate snapshot date of the latest annual Forbes billionaires list, which
-# is what archivedWorth holds. Used to date that value so the client can build
-# temporary short-window (1M/3M) estimates. Update once a year when the list refreshes.
-ARCHIVED_LIST_DATE = "2026-03-07"
+
+# The annual Forbes list is published around early April. Everything below
+# derives from the calendar so the site keeps working unattended: each April the
+# latest-list year advances, a new past year joins ANNUAL_YEARS, and its list is
+# fetched once and cached to storage (the committed bundle covers 2021-2025).
+def _latest_list_year(today=None):
+    today = today or time.gmtime()
+    return today.tm_year if (today.tm_mon, today.tm_mday) >= (4, 10) else today.tm_year - 1
+
+
+ANNUAL_YEARS = list(range(2021, _latest_list_year()))  # past lists; the latest is archivedWorth
+# Snapshot date of the latest annual list (what archivedWorth holds), used to
+# date that value so the client can build temporary 1M/3M estimates. Exact dates
+# for known lists; a safe approximation for future ones.
+_KNOWN_LIST_DATES = {2026: "2026-03-07"}
+ARCHIVED_LIST_DATE = _KNOWN_LIST_DATES.get(
+    _latest_list_year(), f"{_latest_list_year()}-04-01")
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -105,33 +117,51 @@ _annual = None
 _annual_lock = threading.Lock()
 
 
+def _fetch_annual_year(year):
+    raw = _http_get(ANNUAL_URL.format(year=year))
+    people = json.loads(raw)["personList"]["personsLists"]
+    return {
+        _norm_name(p["personName"]): p["finalWorth"]
+        for p in people if p.get("finalWorth")
+    }
+
+
 def _load_annual():
     """Past annual lists as {year: {normalized name: worth}}.
 
-    Prefers the committed bundle (api/annual.json) so serverless cold starts are
-    instant; falls back to fetching live if the bundle is missing.
+    The committed bundle (api/annual.json) covers 2021-2025 so serverless cold
+    starts are instant. Years beyond the bundle (each new list after April) are
+    fetched live once and cached to storage as annual_extra.json.
     """
     global _annual
     with _annual_lock:
         if _annual is not None:
             return _annual
+        maps = {}
         try:
             with open(os.path.join(HERE, "annual.json")) as f:
-                _annual = json.load(f)
-                return _annual
+                maps = json.load(f)
         except (OSError, ValueError):
             pass
-        maps = {}
-        for year in ANNUAL_YEARS:
-            try:
-                raw = _http_get(ANNUAL_URL.format(year=year))
-                people = json.loads(raw)["personList"]["personsLists"]
-                maps[str(year)] = {
-                    _norm_name(p["personName"]): p["finalWorth"]
-                    for p in people if p.get("finalWorth")
-                }
-            except Exception as e:
-                print(f"warning: annual {year} fetch failed: {e}")
+        missing = [y for y in ANNUAL_YEARS if str(y) not in maps]
+        if missing:
+            import _storage
+            extra = _storage.read_json("annual_extra.json")
+            fetched = False
+            for year in missing:
+                if str(year) in extra:
+                    maps[str(year)] = extra[str(year)]
+                    continue
+                try:
+                    maps[str(year)] = extra[str(year)] = _fetch_annual_year(year)
+                    fetched = True
+                except Exception as e:
+                    print(f"warning: annual {year} fetch failed: {e}")
+            if fetched:
+                try:
+                    _storage.write_json("annual_extra.json", extra)
+                except Exception as e:
+                    print(f"warning: could not cache annual lists: {e}")
         _annual = maps
         return _annual
 
