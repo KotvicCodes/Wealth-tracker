@@ -97,9 +97,9 @@ The site is meant to keep itself correct without anyone touching it:
 
 ## Dependency updates
 
-Dependabot checks `requirements.txt` every Monday at 09:00 UTC and opens up to
-three version-update pull requests. Updates require review and merging; they
-are not applied automatically. Dependabot alerts and security updates are also
+Dependabot checks Python dependencies and GitHub Actions every Monday at
+09:00 UTC and opens up to three version-update pull requests per ecosystem.
+Updates require review and merging; they are not applied automatically. Dependabot alerts and security updates are also
 enabled in the repository settings; security fixes run separately from this
 weekly schedule.
 
@@ -107,3 +107,29 @@ The Blob SDK is pinned to `0.4.2`, which supports the `vercel_blob` API used by
 `api/_storage.py`. Version `0.5.0` changes the import path and API, so upgrading
 requires adapting the storage integration first. Chart.js is loaded directly
 from a CDN in `index.html` and is outside Dependabot's coverage.
+
+`requirements.in` declares the direct dependency; the generated
+`requirements.txt` locks every direct and indirect dependency with artifact
+hashes. Dependabot updates the pins and hashes together. For manual changes,
+edit `requirements.in` and regenerate with `pip-tools`:
+
+```sh
+pip-compile --generate-hashes --output-file=requirements.txt requirements.in
+```
+
+The dependency-check workflow installs only hash-verified wheels and tests
+storage compatibility on Python 3.12 and 3.14. It runs the installed Blob SDK
+against fake HTTP responses, without credentials or access to real storage.
+The workflow has read-only repository permissions, and checkout credentials
+are not persisted. Run the same checks locally with:
+
+```sh
+python3 -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+python3 -m unittest discover -s tests -v
+```
+
+For Vercel previews, keep the production `BLOB_READ_WRITE_TOKEN` scoped to
+Production. If previews need persistent storage, connect a separate Blob
+store to Preview. Scope `CRON_SECRET` separately as well. A runtime check in
+application code cannot protect a token already available during a preview
+build or to an installed dependency.

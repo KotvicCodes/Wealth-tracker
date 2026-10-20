@@ -1,0 +1,32 @@
+name: Dependency checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  storage:
+    name: Storage compatibility (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install hash-verified dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+      - name: Check installed dependencies
+        run: python -m pip check
+      - name: Check storage compatibility without network access
+        run: python -m unittest discover -s tests -v
