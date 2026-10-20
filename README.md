@@ -94,3 +94,16 @@ The site is meant to keep itself correct without anyone touching it:
   API reports workforce by Forbes' industry categories.
 - 1M/3M returns upgrade themselves from estimates to measured values as daily
   snapshots accumulate.
+
+## Dependency updates
+
+Dependabot checks `requirements.txt` every Monday at 09:00 UTC and opens up to
+three version-update pull requests. Updates require review and merging; they
+are not applied automatically. Dependabot alerts and security updates are also
+enabled in the repository settings; security fixes run separately from this
+weekly schedule.
+
+The Blob SDK is pinned to `0.4.2`, which supports the `vercel_blob` API used by
+`api/_storage.py`. Version `0.5.0` changes the import path and API, so upgrading
+requires adapting the storage integration first. Chart.js is loaded directly
+from a CDN in `index.html` and is outside Dependabot's coverage.
