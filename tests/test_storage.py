@@ -13,6 +13,7 @@ from api import _storage
 
 
 def json_response(payload):
+    """Build a successful SDK HTTP response from a JSON payload."""
     response = Response()
     response.status_code = 200
     response._content = json.dumps(payload).encode()
@@ -22,6 +23,7 @@ def json_response(payload):
 
 class StorageCompatibilityTests(unittest.TestCase):
     def setUp(self):
+        """Use a fake token and reject accidental socket connections."""
         environment = patch.dict(os.environ, {"BLOB_READ_WRITE_TOKEN": "test-only-token"})
         environment.start()
         self.addCleanup(environment.stop)
@@ -32,6 +34,7 @@ class StorageCompatibilityTests(unittest.TestCase):
         self.addCleanup(network.stop)
 
     def test_blob_write_preserves_json_and_overwrites_the_same_path(self):
+        """Check the real SDK produces a stable, overwritable JSON upload."""
         payload = {"example": {"asOf": 123, "people": [["Example", 100]]}}
         with patch("requests.sessions.Session.request", autospec=True,
                    return_value=json_response({"pathname": "history.json"})) as request:
@@ -49,6 +52,7 @@ class StorageCompatibilityTests(unittest.TestCase):
         self.assertNotEqual(options["headers"].get("x-add-random-suffix"), "1")
 
     def test_blob_read_downloads_the_matching_document(self):
+        """Check both supported download URL fields with the real list API."""
         payload = {"example": {"population": 100}}
         for url_key in ("downloadUrl", "url"):
             with self.subTest(url_key=url_key):
@@ -71,6 +75,7 @@ class StorageCompatibilityTests(unittest.TestCase):
                 download.assert_called_once_with(url, timeout=15)
 
     def test_missing_blob_returns_an_empty_document_without_downloading(self):
+        """Keep a missing document empty without attempting a download."""
         with patch("requests.sessions.Session.request", autospec=True,
                    return_value=json_response({"blobs": []})), patch(
                        "api._storage.urllib.request.urlopen"
@@ -79,6 +84,7 @@ class StorageCompatibilityTests(unittest.TestCase):
         download.assert_not_called()
 
     def test_local_storage_round_trip_without_a_blob_token(self):
+        """Keep token-free local reads and writes independent of the SDK."""
         payload = {"example": [1, 2, 3]}
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ, {"BLOB_READ_WRITE_TOKEN": ""}
