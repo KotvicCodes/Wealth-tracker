@@ -5,7 +5,7 @@ people (~3,400 billionaires), using **Forbes' public real-time billionaires API*
 
 ## Run locally
 
-Requires Node.js 22 and npm.
+Requires Node.js 22.13.0 or later within Node.js 22 (`^22.13.0`) and npm.
 
 ```sh
 npm ci

@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,13 @@ const contentTypes: Record<string, string> = {
 };
 
 const server = createServer(async (req, res) => {
-  const pathname = new URL(req.url || '/', 'http://localhost').pathname;
+  let pathname: string;
+  try {
+    pathname = new URL(req.url || '/', 'http://localhost').pathname;
+  } catch {
+    sendJson(req, res, 400, { error: 'invalid request URL' });
+    return;
+  }
   if (pathname.startsWith('/api/')) {
     const route = pathname.slice(5) as Route;
     if (routes.includes(route)) await handleApi(route, req, res, true);
@@ -35,7 +42,7 @@ const server = createServer(async (req, res) => {
 });
 
 const port = Number(process.env.PORT || 8000);
-server.listen(port, '127.0.0.1', () => console.log(`Wealth Tracker running at http://localhost:${port}`));
+server.listen(port, '127.0.0.1', () => console.log(`Wealth Tracker running at http://localhost:${(server.address() as AddressInfo).port}`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => { server.close(); void vite?.close(); });
 }
