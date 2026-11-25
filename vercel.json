@@ -1,9 +1,9 @@
 {
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "functions": {
-    "api/*.py": {
-      "maxDuration": 60,
-      "includeFiles": "api/annual.json"
-    }
+    "api/*.ts": { "maxDuration": 60 }
   },
   "crons": [
     { "path": "/api/cron", "schedule": "0 22 * * *" }

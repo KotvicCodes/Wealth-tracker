@@ -1,5 +1,10 @@
-# runtime data snapshots + local annual-list caches
+# Runtime snapshots and annual-list caches
 data/
+node_modules/
+dist/
+.vercel/
+.DS_Store
+.env
+.env.*
 __pycache__/
 *.pyc
-.vercel/
