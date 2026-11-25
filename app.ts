@@ -1,9 +1,40 @@
-/* Wealth Tracker frontend – plain JS, no framework. */
-"use strict";
+/* Wealth Tracker frontend – TypeScript, no UI framework. */
+import Chart from 'chart.js/auto';
+import type { ChartConfiguration, ChartOptions, ChartData } from 'chart.js';
+import type { BillionairesData, History, Person, ReferenceData } from './shared/types.js';
 
-const $ = (id) => document.getElementById(id);
+type Period = 'day' | 'm1' | 'm3' | 'ytd' | 'y1' | 'y3' | 'y5';
+type Scope = 'all' | 'top500';
+type GroupKey = 'country' | 'industry';
+interface EnrichedPerson extends Person {
+  dailyChange: number | null; dailyPct: number | null;
+  ytdChange: number | null; ytdPct: number | null;
+  chg1y: number | null; pct1y: number | null; age: number | null;
+  chg90: number | null; pct90: number | null; est90: boolean;
+}
+type SortKey = 'rank' | 'name' | 'country' | 'industry' | 'worth' | 'dailyChange' | 'dailyPct' | 'chg90' | 'pct90' | 'chg1y' | 'pct1y';
+type ChartKind = 'bar' | 'line';
+interface State {
+  people: EnrichedPerson[]; filtered: EnrichedPerson[]; scope: Scope;
+  sortKey: SortKey; sortDir: number; rendered: number;
+  charts: Record<string, Chart<ChartKind>>;
+  dashboardDirty: boolean; perfDirty: boolean; oddsDirty: boolean;
+  period: Period; history: History; reference: ReferenceData;
+  annualYears: string[]; archivedAgeDays: number | null;
+}
+interface Tile { label: string; value: string; cls?: string; delta?: string }
+interface OddsProfile { c: string; i: string; g: string; label?: string }
+const isPeriod = (value: string | undefined | null): value is Period =>
+  !!value && ['day', 'm1', 'm3', 'ytd', 'y1', 'y3', 'y5'].includes(value);
 
-const state = {
+// Infer form controls and canvases from the IDs used in index.html.
+type SelectId = 'countryFilter' | 'industryFilter' | 'oddsCountry' | 'oddsIndustry' | 'oddsGender';
+function $<T extends string>(id: T): T extends SelectId ? HTMLSelectElement : T extends 'search' ? HTMLInputElement : T extends `ch${string}` ? HTMLCanvasElement : HTMLElement {
+  const element = document.getElementById(id);
+  if (!element) throw new Error(`Missing element #${id}`);
+  return element as ReturnType<typeof $<T>>;
+}
+const state: State = {
   people: [],        // full dataset with derived metrics
   filtered: [],      // current table slice (after search/filters/scope/sort)
   scope: "all",      // "all" | "top500"
@@ -17,22 +48,23 @@ const state = {
   period: loadPeriod(),
   history: {},           // local daily snapshots {date: {asOf, people: [[name, worth]]}}
   reference: {},         // weekly-refreshed population figures for the odds view
+  archivedAgeDays: null,
   annualYears: [],       // served annual-list years, e.g. ["2021", ..., "2025"]
 };
 
 const CHUNK = 80;
 
 // last selected performance period, kept across visits; defaults to 1 year
-function loadPeriod() {
+function loadPeriod(): Period {
   try {
     const p = localStorage.getItem("wt.period");
-    if (p && ["day", "m1", "m3", "ytd", "y1", "y3", "y5"].includes(p)) return p;
+    if (isPeriod(p)) return p;
   } catch (_) {}
   return "y1";
 }
 
 /* ---------- formatting ---------- */
-const fmtMoney = (m) => {
+const fmtMoney = (m: number | null | undefined) => {
   // m is $ millions
   if (m == null || isNaN(m)) return "–";
   const abs = Math.abs(m);
@@ -41,9 +73,9 @@ const fmtMoney = (m) => {
   if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 100000 ? 0 : 1)}B`;
   return `${sign}$${abs.toFixed(0)}M`;
 };
-const fmtDelta = (m) => (m == null || isNaN(m) ? "–" : (m >= 0 ? "+" : "") + fmtMoney(m).replace("$-", "-$"));
-const fmtPct = (p) => (p == null || isNaN(p) ? "–" : `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`);
-const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+const fmtDelta = (m: number | null | undefined) => (m == null || isNaN(m) ? "–" : (m >= 0 ? "+" : "") + fmtMoney(m).replace("$-", "-$"));
+const fmtPct = (p: number | null | undefined) => (p == null || isNaN(p) ? "–" : `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`);
+const cls = (v: number | null | undefined) => (v != null && v > 0 ? "pos" : v != null && v < 0 ? "neg" : "");
 
 /* ---------- data ---------- */
 async function loadData() {
@@ -57,7 +89,7 @@ async function loadData() {
     try { msg = (await resp.json()).error || msg; } catch (_) {}
     throw new Error(msg);
   }
-  const data = await resp.json();
+  const data: BillionairesData = await resp.json();
   if (histResp && histResp.ok) {
     try { state.history = await histResp.json(); } catch (_) { state.history = {}; }
   }
@@ -70,7 +102,7 @@ async function loadData() {
   state.annualYears = (data.annualYears || []).map(String);
   if (!state.annualYears.length) state.annualYears = ["2021", "2022", "2023", "2024", "2025"];
   const latest = +state.annualYears[state.annualYears.length - 1];
-  [["y1", latest], ["y3", latest - 2], ["y5", latest - 4]].forEach(([key, y]) => {
+  ([["y1", latest], ["y3", latest - 2], ["y5", latest - 4]] as const).forEach(([key, y]) => {
     PERIODS[key].year = String(y);
     PERIODS[key].label = `since the ${y} list`;
   });
@@ -78,14 +110,14 @@ async function loadData() {
   const now = Date.now();
   state.people = data.people.map((p) => {
     const dailyChange = p.prevWorth != null ? p.worth - p.prevWorth : null;
-    const dailyPct = p.prevWorth ? (dailyChange / p.prevWorth) * 100 : null;
-    const ytdChange = p.archivedWorth != null && p.archivedWorth > 0 ? p.worth - p.archivedWorth : null;
-    const ytdPct = p.archivedWorth > 0 ? (ytdChange / p.archivedWorth) * 100 : null;
-    const w1y = (p.annual || {})[PERIODS.y1.year];
+    const dailyPct = p.prevWorth ? (dailyChange! / p.prevWorth) * 100 : null;
+    const ytdChange = p.archivedWorth != null && (p.archivedWorth ?? 0) > 0 ? p.worth - p.archivedWorth : null;
+    const ytdPct = (p.archivedWorth ?? 0) > 0 ? (ytdChange! / p.archivedWorth!) * 100 : null;
+    const w1y = (p.annual || {})[PERIODS.y1.year!];
     const chg1y = w1y > 0 ? p.worth - w1y : null;
-    const pct1y = w1y > 0 ? (chg1y / w1y) * 100 : null;
+    const pct1y = w1y > 0 ? (chg1y! / w1y) * 100 : null;
     const age = p.birthDate ? Math.floor((now - p.birthDate) / (365.25 * 24 * 3600e3)) : null;
-    return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, chg1y, pct1y, age };
+    return { ...p, dailyChange, dailyPct, ytdChange, ytdPct, chg1y, pct1y, age, chg90: null, pct90: null, est90: false };
   });
   // days since the latest annual list, used to date archivedWorth for estimates
   state.archivedAgeDays = data.archivedAsOf
@@ -107,7 +139,7 @@ async function loadData() {
    past annual Forbes lists. 1M/3M prefer this app's own daily snapshots
    (data/history.json), and until ~90 days of those accumulate they fall back
    to an estimate interpolated from the latest annual list (see estimateBaseline). */
-const PERIODS = {
+const PERIODS: Record<Period, { label: string; days?: number; year?: string }> = {
   day: { label: "today" },
   m1: { label: "past month", days: 30 },
   m3: { label: "past 3 months", days: 90 },
@@ -119,10 +151,10 @@ const PERIODS = {
   y5: { label: "since the 2021 list", year: "2021" },
 };
 
-const normName = (n) => (n || "").toLowerCase().replace(/\s*&\s*family/, "").replace(/[^a-z ]/g, "").trim();
+const normName = (n: string) => (n || "").toLowerCase().replace(/\s*&\s*family/, "").replace(/[^a-z ]/g, "").trim();
 
 // Find a local snapshot closest to `days` ago (within a third of the span).
-function snapshotBaseline(days) {
+function snapshotBaseline(days: number) {
   const target = Date.now() - days * 86400e3;
   const tolerance = days * 86400e3 / 3;
   let best = null, bestDist = Infinity;
@@ -135,35 +167,35 @@ function snapshotBaseline(days) {
   return new Map(best.people.map(([n, w]) => [normName(n), w]));
 }
 
-const snapshotCache = {};
+const snapshotCache: Partial<Record<Period, Map<string, number> | null>> = {};
 
 // Temporary estimate of a past net worth for a short window (1M/3M): interpolate
 // linearly between the latest annual list (archivedWorth, dated archivedAgeDays
 // ago) and the live value. Replaced by real snapshots as daily history builds up.
-function estimateBaseline(p, days) {
+function estimateBaseline(p: Person, days: number) {
   const D = state.archivedAgeDays;
-  if (!(p.archivedWorth > 0) || !(p.worth > 0) || !(D > 0)) return null;
+  if (!((p.archivedWorth ?? 0) > 0) || !(p.worth > 0) || !(D != null && D > 0)) return null;
   const frac = Math.min(days / D, 1);
-  return p.worth + (p.archivedWorth - p.worth) * frac;
+  return p.worth + (p.archivedWorth! - p.worth) * frac;
 }
 
 // Returns { base, est }: the baseline net worth for the period and whether it is
 // an estimate (true only for 1M/3M served from the annual-list fallback).
-function baselineWorth(p, period) {
+function baselineWorth(p: Person, period: Period) {
   const def = PERIODS[period];
   if (period === "day") return { base: p.prevWorth, est: false };
-  if (period === "ytd") return { base: p.archivedWorth > 0 ? p.archivedWorth : null, est: false };
+  if (period === "ytd") return { base: (p.archivedWorth ?? 0) > 0 ? p.archivedWorth : null, est: false };
   if (def.year) { const w = (p.annual || {})[def.year]; return { base: w > 0 ? w : null, est: false }; }
-  if (!(period in snapshotCache)) snapshotCache[period] = snapshotBaseline(def.days);
+  if (!(period in snapshotCache)) snapshotCache[period] = snapshotBaseline(def.days!);
   const map = snapshotCache[period];
   const real = map ? map.get(normName(p.name)) ?? null : null;
   if (real != null) return { base: real, est: false };
-  return { base: estimateBaseline(p, def.days), est: true };
+  return { base: estimateBaseline(p, def.days!), est: true };
 }
 
-function periodChange(p, period) {
+function periodChange(p: Person, period: Period) {
   const { base, est } = baselineWorth(p, period);
-  if (base == null || !(base > 0)) return { chg: null, pct: null, est: false };
+  if (base == null || !(base > 0)) return { chg: null, pct: null, est: false } as const;
   const chg = p.worth - base;
   return { chg, pct: (chg / base) * 100, est };
 }
@@ -193,7 +225,7 @@ function applyFilters() {
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    return (typeof av === "string" ? av.localeCompare(bv) : av - bv) * d;
+    return (typeof av === "string" ? av.localeCompare(String(bv)) : Number(av) - Number(bv)) * d;
   });
   state.filtered = rows;
   resetTable();
@@ -216,11 +248,11 @@ function renderChunk() {
   state.rendered = end;
 }
 
-function buildRow(p) {
+function buildRow(p: EnrichedPerson) {
   const tr = document.createElement("tr");
 
   const tdRank = document.createElement("td");
-  tdRank.className = "num"; tdRank.textContent = p.rank ?? "–";
+  tdRank.className = "num"; tdRank.textContent = String(p.rank ?? "–");
 
   const tdName = document.createElement("td");
   tdName.className = "name";
@@ -263,7 +295,7 @@ function buildRow(p) {
   return tr;
 }
 
-function avatarFallback(name) {
+function avatarFallback(name: string) {
   const el = document.createElement("span");
   el.className = "avatar fallback";
   el.textContent = (name || "?").split(" ").map((w) => w[0]).slice(0, 2).join("");
@@ -271,19 +303,20 @@ function avatarFallback(name) {
 }
 
 // past annual list values + latest list + live value, nulls skipped
-function yearlySeries(p) {
-  const vals = state.annualYears.map((y) => (p.annual || {})[y]);
+function yearlySeries(p: Person) {
+  const vals: (number | null)[] = state.annualYears.map((y) => (p.annual || {})[y]);
   vals.push(p.archivedWorth, p.worth);
-  return vals.filter((v) => v > 0);
+  return vals.filter((v): v is number => v != null && v > 0);
 }
 
-function sparkline(values) {
+function sparkline(values: number[]) {
   const w = 96, h = 26, pad = 2;
   const canvas = document.createElement("canvas");
   canvas.className = "spark";
   canvas.width = w * devicePixelRatio; canvas.height = h * devicePixelRatio;
   canvas.style.width = w + "px"; canvas.style.height = h + "px";
   const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
   ctx.scale(devicePixelRatio, devicePixelRatio);
   const min = Math.min(...values), max = Math.max(...values);
   const span = max - min || 1;
@@ -317,12 +350,12 @@ function chartDefaults() {
   Chart.defaults.maintainAspectRatio = false;
 }
 
-function makeChart(id, config) {
+function makeChart(id: string, config: ChartConfiguration<ChartKind>) {
   if (state.charts[id]) state.charts[id].destroy();
-  state.charts[id] = new Chart($(id), config);
+  state.charts[id] = new Chart($(id) as HTMLCanvasElement, config);
 }
 
-const barOpts = (horizontal, unit) => ({
+const barOpts = (horizontal: boolean, unit: string): ChartOptions<"bar"> => ({
   indexAxis: horizontal ? "y" : "x",
   scales: {
     x: { grid: { display: !horizontal ? false : true, color: C.grid }, border: { display: false },
@@ -335,33 +368,34 @@ const barOpts = (horizontal, unit) => ({
     tooltip: {
       backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
       titleColor: "#fff", bodyColor: C.ink2, padding: 10,
-      callbacks: { label: (c) => ` ${(horizontal ? c.parsed.x : c.parsed.y).toLocaleString(undefined, { maximumFractionDigits: 1 })}${unit || ""}` },
+      callbacks: { label: (c) => ` ${(horizontal ? c.parsed.x : c.parsed.y)?.toLocaleString(undefined, { maximumFractionDigits: 1 })}${unit || ""}` },
     },
   },
 });
 
 // bar options for $-valued charts: axis ticks and tooltips through fmtMoney
 // (values stay in $ millions so "$820B" / "$1.53T" render naturally)
-function moneyBarOpts(horizontal) {
+function moneyBarOpts(horizontal: boolean) {
   const o = barOpts(horizontal, "");
-  const axis = horizontal ? o.scales.x : o.scales.y;
-  axis.ticks = { callback: (v) => (v === 0 ? "$0" : fmtMoney(v)) };
-  o.plugins.tooltip.callbacks = {
+  const axis = horizontal ? o.scales!.x! : o.scales!.y!;
+  axis.ticks = { callback: (v) => (v === 0 ? "$0" : fmtMoney(Number(v))) };
+  o.plugins!.tooltip!.callbacks = {
     label: (c) => ` ${fmtMoney(horizontal ? c.parsed.x : c.parsed.y)}`,
   };
   return o;
 }
 
 // horizontal-only x-tick fix helper
-function compact(v) {
+function compact(value: number | string) {
+  const v = Number(value);
   if (Math.abs(v) >= 1000) return (v / 1000).toLocaleString() + "k";
   return v.toLocaleString();
 }
 
-const barData = (labels, values, color) => ({
+const barData = (labels: string[], values: (number | null | undefined)[], color: string): ChartData<"bar"> => ({
   labels,
   datasets: [{
-    data: values,
+    data: values.map((v) => v ?? null),
     backgroundColor: color,
     borderRadius: 4, borderSkipped: false,
     maxBarThickness: 18, categoryPercentage: 0.72,
@@ -370,12 +404,12 @@ const barData = (labels, values, color) => ({
 
 function renderDashboard() {
   const rows = scoped();
-  const worthOf = (p) => p.worth || 0;
+  const worthOf = (p: Person) => p.worth || 0;
   const total = rows.reduce((s, p) => s + worthOf(p), 0);
   const sortedW = rows.map(worthOf).sort((a, b) => a - b);
   const median = sortedW.length ? sortedW[Math.floor(sortedW.length / 2)] : 0;
   const dayMove = rows.reduce((s, p) => s + (p.dailyChange || 0), 0);
-  const withDaily = rows.filter((p) => p.dailyChange != null);
+  const withDaily = rows.filter((p): p is EnrichedPerson & { dailyChange: number } => p.dailyChange != null);
   const gainers = withDaily.slice().sort((a, b) => b.dailyChange - a.dailyChange).slice(0, 10);
   const losers = withDaily.slice().sort((a, b) => a.dailyChange - b.dailyChange).slice(0, 10);
 
@@ -387,12 +421,12 @@ function renderDashboard() {
   sortedW.forEach((w, i) => { weighted += (i + 1) * w; });
   const gini = sortedW.length && total ? (2 * weighted) / (sortedW.length * total) - (sortedW.length + 1) / sortedW.length : null;
   const centi = rows.filter((p) => worthOf(p) >= 100000).length;
-  const ages = rows.filter((p) => p.age != null && p.age > 10 && p.age < 110);
+  const ages = rows.filter((p): p is EnrichedPerson & { age: number } => p.age != null && p.age > 10 && p.age < 110);
   const ageSorted = ages.map((p) => p.age).sort((a, b) => a - b);
   const medianAge = ageSorted.length ? ageSorted[Math.floor(ageSorted.length / 2)] : null;
 
   // stat tiles
-  const tiles = [
+  const tiles = ([
     { label: "People", value: rows.length.toLocaleString() },
     { label: "Combined wealth", value: fmtMoney(total) },
     { label: "Average", value: fmtMoney(rows.length ? total / rows.length : 0) },
@@ -404,7 +438,7 @@ function renderDashboard() {
     medianAge != null && { label: "Median age", value: String(medianAge) },
     gainers[0] && { label: "Biggest gainer", value: gainers[0].name, delta: fmtDelta(gainers[0].dailyChange), cls: "pos" },
     losers[0] && { label: "Biggest loser", value: losers[0].name, delta: fmtDelta(losers[0].dailyChange), cls: "neg" },
-  ].filter(Boolean);
+  ] as (Tile | false | undefined)[]).filter((t): t is Tile => !!t);
   $("tiles").innerHTML = tiles.map((t) => `
     <div class="tile">
       <div class="label">${t.label}</div>
@@ -425,8 +459,8 @@ function renderDashboard() {
   });
 
   // people counts by country (top 12 + Other) and by industry
-  const countBy = (key) => {
-    const m = new Map();
+  const countBy = (key: GroupKey) => {
+    const m = new Map<string, number>();
     rows.forEach((p) => { const k = p[key] || "Unknown"; m.set(k, (m.get(k) || 0) + 1); });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
@@ -449,8 +483,8 @@ function renderDashboard() {
 
   // combined wealth by country (top 12 + Other) and by industry, in aqua so
   // $-magnitude charts read differently from the blue people-count charts
-  const sumBy = (key) => {
-    const m = new Map();
+  const sumBy = (key: GroupKey) => {
+    const m = new Map<string, number>();
     rows.forEach((p) => { const k = p[key] || "Unknown"; m.set(k, (m.get(k) || 0) + worthOf(p)); });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
@@ -471,7 +505,7 @@ function renderDashboard() {
   });
 
   // net-worth distribution
-  const bins = [
+  const bins: [string, number, number][] = [
     ["$1–2B", 1000, 2000], ["$2–5B", 2000, 5000], ["$5–10B", 5000, 10000],
     ["$10–20B", 10000, 20000], ["$20–50B", 20000, 50000],
     ["$50–100B", 50000, 100000], ["$100B+", 100000, Infinity],
@@ -486,7 +520,7 @@ function renderDashboard() {
   // concentration: cumulative share held by top N
   const marks = [10, 25, 50, 100, 250, 500, 1000, desc.length].filter((n, i, a) => n <= desc.length && a.indexOf(n) === i);
   let cum = 0, ci = 0;
-  const cumAt = [];
+  const cumAt: number[] = [];
   marks.forEach((n) => { while (ci < n) cum += desc[ci++]; cumAt.push((cum / total) * 100); });
   makeChart("chConc", {
     type: "line",
@@ -507,7 +541,7 @@ function renderDashboard() {
         tooltip: {
           backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
           titleColor: "#fff", bodyColor: C.ink2, padding: 10,
-          callbacks: { label: (c) => ` ${c.parsed.y.toFixed(1)}% of total wealth` },
+          callbacks: { label: (c) => ` ${c.parsed.y?.toFixed(1)}% of total wealth` },
         },
       },
     },
@@ -517,14 +551,14 @@ function renderDashboard() {
   const years = state.annualYears;
   const timeLabels = [...years, "Latest list", "Now"];
   const timeSums = [];
-  const timeCounts = [];
+  const timeCounts: number[] = [];
   years.forEach((y) => {
     let s = 0, n = 0;
     rows.forEach((p) => { const w = (p.annual || {})[y]; if (w > 0) { s += w; n++; } });
     timeSums.push(s); timeCounts.push(n);
   });
-  const archived = rows.filter((p) => p.archivedWorth > 0);
-  timeSums.push(archived.reduce((s, p) => s + p.archivedWorth, 0));
+  const archived = rows.filter((p) => (p.archivedWorth ?? 0) > 0);
+  timeSums.push(archived.reduce((s, p) => s + p.archivedWorth!, 0));
   timeCounts.push(archived.length);
   timeSums.push(total);
   timeCounts.push(rows.length);
@@ -541,7 +575,7 @@ function renderDashboard() {
     options: {
       scales: {
         x: { grid: { display: false }, border: { display: false } },
-        y: { grid: { color: C.grid }, border: { display: false }, ticks: { callback: (v) => fmtMoney(v) } },
+        y: { grid: { color: C.grid }, border: { display: false }, ticks: { callback: (v) => fmtMoney(Number(v)) } },
       },
       plugins: {
         tooltip: {
@@ -554,7 +588,7 @@ function renderDashboard() {
   });
 
   // age distribution
-  const decades = new Map();
+  const decades = new Map<number, number>();
   ages.forEach((p) => { const d = Math.floor(p.age / 10) * 10; decades.set(d, (decades.get(d) || 0) + 1); });
   const dkeys = [...decades.keys()].sort((a, b) => a - b);
   makeChart("chAge", {
@@ -564,11 +598,11 @@ function renderDashboard() {
   });
 
   // average net worth per age decade
-  const decadeWorth = new Map();
+  const decadeWorth = new Map<number, number[]>();
   ages.forEach((p) => {
     const d = Math.floor(p.age / 10) * 10;
     if (!decadeWorth.has(d)) decadeWorth.set(d, []);
-    decadeWorth.get(d).push(worthOf(p));
+    decadeWorth.get(d)!.push(worthOf(p));
   });
   makeChart("chAvgAge", {
     type: "bar",
@@ -583,7 +617,7 @@ function renderDashboard() {
   });
 
   // composition stacked bars (self-made, gender) – pure CSS
-  const compBar = (label, segments) => {
+  const compBar = (label: string, segments: { name: string; n: number; color: string }[]) => {
     segments = segments.filter((s) => s.n > 0);
     const totalSeg = segments.reduce((s, x) => s + x.n, 0) || 1;
     return `<div class="comp">
@@ -631,16 +665,16 @@ function renderPerformance() {
   const losers = rows.filter((r) => r.chg < 0).length;
   const byChg = rows.slice().sort((a, b) => b.chg - a.chg);
   // % movers restricted to fortunes >= $2B so tiny bases don't dominate
-  const byPct = rows.filter((r) => baselineWorth(r.p, period).base >= 2000).sort((a, b) => b.pct - a.pct);
+  const byPct = rows.filter((r) => (baselineWorth(r.p, period).base ?? 0) >= 2000).sort((a, b) => b.pct - a.pct);
 
-  const median = (arr) => (arr.length ? arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null);
-  const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+  const median = (arr: number[]) => (arr.length ? arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null);
+  const mean = (arr: number[]) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
   const avgChg = mean(rows.map((r) => r.chg));
   const medChg = median(rows.map((r) => r.chg));
   const avgPct = mean(rows.map((r) => r.pct));
   const medPct = median(rows.map((r) => r.pct));
 
-  const tiles = [
+  const tiles = ([
     { label: "Aggregate change", value: fmtDelta(agg), cls: cls(agg) },
     { label: "Average change", value: fmtDelta(avgChg), cls: cls(avgChg) },
     { label: "Median change", value: fmtDelta(medChg), cls: cls(medChg) },
@@ -652,7 +686,7 @@ function renderPerformance() {
     byChg[0] && { label: "Worst ($)", value: byChg[byChg.length - 1].p.name, delta: fmtDelta(byChg[byChg.length - 1].chg), cls: cls(byChg[byChg.length - 1].chg) },
     byPct[0] && { label: "Best (%)", value: byPct[0].p.name, delta: fmtPct(byPct[0].pct), cls: cls(byPct[0].pct) },
     byPct[0] && { label: "Worst (%)", value: byPct[byPct.length - 1].p.name, delta: fmtPct(byPct[byPct.length - 1].pct), cls: cls(byPct[byPct.length - 1].pct) },
-  ].filter(Boolean);
+  ] as (Tile | false | undefined)[]).filter((t): t is Tile => !!t);
   $("perfTiles").innerHTML = tiles.map((t) => `
     <div class="tile">
       <div class="label">${t.label}</div>
@@ -687,21 +721,21 @@ function renderPerformance() {
   });
 
   // average return by industry and by country (top 12 by people), sign-colored
-  const groupAvg = (key, limit) => {
-    const groups = new Map();
+  const groupAvg = (key: GroupKey, limit?: number) => {
+    const groups = new Map<string, number[]>();
     rows.forEach((r) => {
       const k = r.p[key];
       if (!k) return;
       if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(r.pct);
+      groups.get(k)!.push(r.pct);
     });
     let entries = [...groups.entries()];
     if (limit) entries = entries.sort((a, b) => b[1].length - a[1].length).slice(0, limit);
     return entries
-      .map(([k, pcts]) => [k, mean(pcts)])
+      .map(([k, pcts]): [string, number] => [k, mean(pcts)!])
       .sort((a, b) => b[1] - a[1]);
   };
-  const signBar = (id, entries) => makeChart(id, {
+  const signBar = (id: string, entries: [string, number][]) => makeChart(id, {
     type: "bar",
     data: {
       labels: entries.map(([k]) => k),
@@ -717,7 +751,7 @@ function renderPerformance() {
   signBar("chAvgCountry", groupAvg("country", 12));
 
   // return distribution: % buckets, red below zero, green above
-  const buckets = [
+  const buckets: [string, number, number][] = [
     ["< -50%", -Infinity, -50], ["-50 to -25%", -50, -25], ["-25 to -10%", -25, -10],
     ["-10 to 0%", -10, 0], ["0 to +10%", 0, 10], ["+10 to +25%", 10, 25],
     ["+25 to +50%", 25, 50], ["+50 to +100%", 50, 100], ["> +100%", 100, Infinity],
@@ -749,7 +783,7 @@ function renderTrajectories() {
     label: p.name,
     data: [
       ...years.map((y) => ((p.annual || {})[y] || null) && (p.annual[y] / 1000)),
-      p.archivedWorth > 0 ? p.archivedWorth / 1000 : null,
+      (p.archivedWorth ?? 0) > 0 ? p.archivedWorth! / 1000 : null,
       p.worth / 1000,
     ],
     borderColor: TRAJ_COLORS[i], backgroundColor: TRAJ_COLORS[i],
@@ -769,7 +803,7 @@ function renderTrajectories() {
         tooltip: {
           backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
           titleColor: "#fff", bodyColor: C.ink2, padding: 10,
-          callbacks: { label: (c) => ` ${c.dataset.label}: $${c.parsed.y.toFixed(1)}B` },
+          callbacks: { label: (c) => ` ${c.dataset.label}: $${c.parsed.y?.toFixed(1)}B` },
         },
       },
     },
@@ -798,7 +832,7 @@ const WORLD_ADULTS_M = 5700; // fallback until /api/reference has data
 
 // adults per country, millions; fallbacks for countries the weekly
 // World Bank refresh cannot cover (e.g. Taiwan, Guernsey) or before it runs
-const COUNTRY_ADULTS_M = {
+const COUNTRY_ADULTS_M: Record<string, number> = {
   "Afghanistan": 21, "Albania": 2.2, "Algeria": 30, "Argentina": 33, "Armenia": 2.2,
   "Australia": 20.5, "Austria": 7.5, "Barbados": 0.22, "Belgium": 9.2, "Belize": 0.26,
   "Brazil": 160, "Bulgaria": 5.5, "Canada": 32, "Chile": 15, "China": 1130,
@@ -819,7 +853,7 @@ const COUNTRY_ADULTS_M = {
 };
 
 // global workforce per Forbes industry, millions, rough estimates
-const INDUSTRY_WORKERS_M = {
+const INDUSTRY_WORKERS_M: Record<string, number | null> = {
   "Technology": 70, "Finance & Investments": 65, "Fashion & Retail": 420,
   "Manufacturing": 430, "Food & Beverage": 220, "Healthcare": 220,
   "Real Estate": 55, "Energy": 55, "Media & Entertainment": 45,
@@ -828,22 +862,22 @@ const INDUSTRY_WORKERS_M = {
   "Gambling & Casinos": 12, "Diversified": null, // no meaningful workforce
 };
 
-const fmtOneIn = (n) => {
+const fmtOneIn = (n: number) => {
   if (!isFinite(n) || n <= 0) return "–";
   if (n >= 1e9) return `1 in ${(n / 1e9).toFixed(1)} billion`;
   if (n >= 1e6) return `1 in ${(n / 1e6).toFixed(1)} million`;
   return `1 in ${Math.round(n).toLocaleString()}`;
 };
 
-const fmtTimes = (x) => (x >= 10 ? Math.round(x).toLocaleString() : x >= 1 ? x.toFixed(1) : x.toFixed(2));
+const fmtTimes = (x: number) => (x >= 10 ? Math.round(x).toLocaleString() : x >= 1 ? x.toFixed(1) : x.toFixed(2));
 
 function renderOdds() {
   const people = state.people;
   const total = people.length;
   // live figures from the weekly World Bank refresh win over the bundled estimates
   const ref = state.reference || {};
-  const worldAdultsM = ref.worldAdultsM > 0 ? ref.worldAdultsM : WORLD_ADULTS_M;
-  const adultsOf = (c) => (ref.countryAdultsM || {})[c] || COUNTRY_ADULTS_M[c];
+  const worldAdultsM = (ref.worldAdultsM ?? 0) > 0 ? ref.worldAdultsM! : WORLD_ADULTS_M;
+  const adultsOf = (c: string) => (ref.countryAdultsM || {})[c] || COUNTRY_ADULTS_M[c];
   const baseline = total / (worldAdultsM * 1e6); // P(billionaire) for the average adult
 
   // Per-worker reference for the industry factor: billionaires per worker across
@@ -864,7 +898,7 @@ function renderOdds() {
   const industry = $("oddsIndustry").value;
   const gender = $("oddsGender").value;
 
-  const factors = [];
+  const factors: {label: string; detail: string; mult: number}[] = [];
   let noData = false;
 
   if (country) {
@@ -958,7 +992,7 @@ const ODDS_PRESETS = [
   { label: "Clear", c: "", i: "", g: "" },
 ];
 
-function applyOddsPreset(p) {
+function applyOddsPreset(p: OddsProfile) {
   $("oddsCountry").value = p.c;
   $("oddsIndustry").value = p.i;
   $("oddsGender").value = p.g;
@@ -977,10 +1011,10 @@ function saveOddsProfile() {
 
 function restoreOddsProfile() {
   let saved;
-  try { saved = JSON.parse(localStorage.getItem("wt.odds")); } catch (_) {}
+  try { saved = JSON.parse(localStorage.getItem("wt.odds") || "null") as OddsProfile | null; } catch (_) {}
   if (!saved) return;
   // only apply values that still exist as options (countries can drop off the list)
-  const restore = (id, v) => {
+  const restore = (id: SelectId, v: string) => {
     const sel = $(id);
     if (v && [...sel.options].some((o) => o.value === v)) sel.value = v;
   };
@@ -990,8 +1024,8 @@ function restoreOddsProfile() {
 }
 
 function populateOdds() {
-  const fillCounted = (sel, key) => {
-    const counts = new Map();
+  const fillCounted = (sel: HTMLSelectElement, key: GroupKey) => {
+    const counts = new Map<string, number>();
     state.people.forEach((p) => { const k = p[key]; if (k) counts.set(k, (counts.get(k) || 0) + 1); });
     [...counts.keys()].sort().forEach((v) => {
       const o = document.createElement("option");
@@ -1002,17 +1036,17 @@ function populateOdds() {
   fillCounted($("oddsCountry"), "country");
   fillCounted($("oddsIndustry"), "industry");
   restoreOddsProfile();
-  ["oddsCountry", "oddsIndustry", "oddsGender"].forEach((id) =>
+  (["oddsCountry", "oddsIndustry", "oddsGender"] as const).forEach((id) =>
     $(id).addEventListener("change", () => { saveOddsProfile(); renderOdds(); }));
   // preset chips are re-rendered with every result, so delegate from the container
   $("oddsResult").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-preset]");
-    if (btn) applyOddsPreset(ODDS_PRESETS[btn.dataset.preset]);
+    const btn = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-preset]") : null;
+    if (btn) applyOddsPreset(ODDS_PRESETS[Number(btn.dataset.preset)]);
   });
 }
 
 /* ---------- person detail modal ---------- */
-function openPersonModal(p) {
+function openPersonModal(p: EnrichedPerson) {
   const overlay = $("personModal");
   overlay.hidden = false;
 
@@ -1028,8 +1062,8 @@ function openPersonModal(p) {
   } else head.appendChild(avatarFallback(p.name));
   const info = document.createElement("div");
   info.innerHTML = `<h3></h3><div class="meta"></div>`;
-  info.querySelector("h3").textContent = `#${p.rank ?? "?"} ${p.name}`;
-  info.querySelector(".meta").textContent =
+  info.querySelector("h3")!.textContent = `#${p.rank ?? "?"} ${p.name}`;
+  info.querySelector(".meta")!.textContent =
     [p.source, p.country, p.industry, p.age != null ? `age ${p.age}` : null].filter(Boolean).join(" · ");
   head.appendChild(info);
   const now = document.createElement("div");
@@ -1037,7 +1071,7 @@ function openPersonModal(p) {
   now.innerHTML = `<div class="big">${fmtMoney(p.worth)}</div><div class="sub2">net worth now</div>`;
   head.appendChild(now);
 
-  const statDefs = [["day", "Today"], ["m1", "1M"], ["m3", "3M"], ["ytd", "YTD"], ["y1", "1Y"], ["y3", "3Y"], ["y5", "5Y"]];
+  const statDefs: [Period, string][] = [["day", "Today"], ["m1", "1M"], ["m3", "3M"], ["ytd", "YTD"], ["y1", "1Y"], ["y3", "3Y"], ["y5", "5Y"]];
   $("modalStats").innerHTML = statDefs.map(([key, label]) => {
     const { chg, pct, est } = periodChange(p, key);
     const mark = est ? "*" : "";
@@ -1056,7 +1090,7 @@ function openPersonModal(p) {
       datasets: [{
         data: [
           ...years.map((y) => ((p.annual || {})[y] || null) && (p.annual[y] / 1000)),
-          p.archivedWorth > 0 ? p.archivedWorth / 1000 : null,
+          (p.archivedWorth ?? 0) > 0 ? p.archivedWorth! / 1000 : null,
           p.worth / 1000,
         ],
         borderColor: C.blue, backgroundColor: "rgba(57,135,229,.10)", fill: true,
@@ -1073,7 +1107,7 @@ function openPersonModal(p) {
         tooltip: {
           backgroundColor: "#222221", borderColor: "rgba(255,255,255,.1)", borderWidth: 1,
           titleColor: "#fff", bodyColor: C.ink2, padding: 10,
-          callbacks: { label: (c) => ` $${c.parsed.y.toFixed(1)}B` },
+          callbacks: { label: (c) => ` $${c.parsed.y?.toFixed(1)}B` },
         },
       },
     },
@@ -1087,23 +1121,23 @@ function closePersonModal() {
 
 /* ---------- filters UI ---------- */
 function populateFilters() {
-  const fill = (sel, values) => {
+  const fill = (sel: HTMLSelectElement, values: string[]) => {
     values.forEach((v) => {
       const o = document.createElement("option");
       o.value = v; o.textContent = v;
       sel.appendChild(o);
     });
   };
-  const uniq = (key) => [...new Set(state.people.map((p) => p[key]).filter(Boolean))].sort();
+  const uniq = (key: GroupKey) => [...new Set(state.people.map((p) => p[key]).filter((v): v is string => !!v))].sort();
   fill($("countryFilter"), uniq("country"));
   fill($("industryFilter"), uniq("industry"));
 }
 
 /* ---------- events ---------- */
 function bindEvents() {
-  document.querySelectorAll(".tab").forEach((tab) => {
+  document.querySelectorAll<HTMLElement>(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+      document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("active", t === tab));
       document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + tab.dataset.view));
       // search/dropdown filters only affect the table; hide them elsewhere.
       // the odds view ignores scope too, so it hides the whole filter bar.
@@ -1128,7 +1162,7 @@ function bindEvents() {
     });
   });
 
-  let debounce;
+  let debounce: ReturnType<typeof setTimeout> | undefined;
   $("search").addEventListener("input", () => {
     clearTimeout(debounce);
     debounce = setTimeout(applyFilters, 150);
@@ -1139,9 +1173,9 @@ function bindEvents() {
   $("scopeAll").addEventListener("click", () => setScope("all"));
   $("scope500").addEventListener("click", () => setScope("top500"));
 
-  document.querySelectorAll("thead th[data-sort]").forEach((th) => {
+  document.querySelectorAll<HTMLElement>("thead th[data-sort]").forEach((th) => {
     th.addEventListener("click", () => {
-      const key = th.dataset.sort;
+      const key = th.dataset.sort as SortKey;
       if (state.sortKey === key) state.sortDir *= -1;
       else {
         state.sortKey = key;
@@ -1157,12 +1191,13 @@ function bindEvents() {
     if (entries[0].isIntersecting && state.rendered < state.filtered.length) renderChunk();
   }, { rootMargin: "600px" }).observe($("sentinel"));
 
-  document.querySelectorAll("#periodbar .chip").forEach((chip) => {
+  document.querySelectorAll<HTMLElement>("#periodbar .chip").forEach((chip) => {
     chip.classList.toggle("active", chip.dataset.period === state.period);
     chip.addEventListener("click", () => {
+      if (!isPeriod(chip.dataset.period)) return;
       state.period = chip.dataset.period;
       try { localStorage.setItem("wt.period", state.period); } catch (_) {}
-      document.querySelectorAll("#periodbar .chip").forEach((c) => c.classList.toggle("active", c === chip));
+      document.querySelectorAll<HTMLElement>("#periodbar .chip").forEach((c) => c.classList.toggle("active", c === chip));
       renderPerformance();
     });
   });
@@ -1172,7 +1207,7 @@ function bindEvents() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("personModal").hidden) closePersonModal(); });
 }
 
-function setScope(scope) {
+function setScope(scope: Scope) {
   state.scope = scope;
   $("scopeAll").classList.toggle("active", scope === "all");
   $("scope500").classList.toggle("active", scope === "top500");
@@ -1198,7 +1233,7 @@ function setScope(scope) {
     await loadData();
   } catch (e) {
     const el = $("error");
-    el.textContent = `Failed to load data: ${e.message}`;
+    el.textContent = `Failed to load data: ${e instanceof Error ? e.message : String(e)}`;
     el.hidden = false;
     $("asof").textContent = "Data unavailable";
     return;
