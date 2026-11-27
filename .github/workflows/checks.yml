@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   typescript:
-    name: TypeScript, tests, and build (Node 22)
+    name: TypeScript, tests, and build (Node 26)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -19,7 +19,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: npm
       - run: npm ci
       - run: npm test

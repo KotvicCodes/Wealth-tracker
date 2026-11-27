@@ -5,7 +5,7 @@ people (~3,400 billionaires), using **Forbes' public real-time billionaires API*
 
 ## Run locally
 
-Requires Node.js 22.13.0 or later within Node.js 22 (`^22.13.0`) and npm.
+Requires Node.js 26 (`^26.0.0`) and npm.
 
 ```sh
 npm ci
@@ -26,7 +26,7 @@ npm start
 
 ## Deploy to Vercel
 
-1. Import this repository into Vercel with the Vite preset and Node.js 22.
+1. Import this repository into Vercel with the Vite preset and Node.js 26.
    `vercel.json` builds the browser app into `dist/`; Vercel builds the TypeScript
    functions in `api/` separately. The annual-list JSON is imported by the API
    and bundled with its functions.
@@ -122,7 +122,7 @@ local snapshot retention, the installed Blob SDK with mocked HTTP, World Bank
 refreshes, and frontend interactions with fixture data. They use temporary
 storage and never need production credentials or call the live data services.
 
-CI runs the tests and build on Node.js 22. `package-lock.json` locks direct and
+CI runs the tests and build on Node.js 26. `package-lock.json` locks direct and
 transitive dependencies, including Chart.js. Dependabot checks npm packages and
 GitHub Actions weekly; updates require review and merging.
 
